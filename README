@@ -1,0 +1,30 @@
+
+
+                              
+        ,---.|                       |
+        `---.|--- ,---.,---.,---.,---|
+            ||    |    ,---||   ||   |
+        `---'`---'`    `---^`   '`---'
+
+
+"Strand" is an open-source implementation of the identically named
+parallel Prolog dialect as described in the book "Strand: New
+Concepts for Parallel Programming" by Ian Foster and Stephen Taylor.
+Strand represents a very elegant and concise notation for expressing
+concurrent and distributed algorithms using only a small number of
+fundamental language constructs and a very simple execution model.
+
+
+This implementation of Strand is written in Forth and runs on Linux
+x86-64/ARM, Mac OS X x86-64 and OpenBSD amd64 systems, has no
+dependencies and is entirely self-contained. Operating system 
+facilities are invoked directly via system calls, no C runtime
+library is required. The Forth system is provided with source
+code and is able to recompile itself into an ELF or Mach-O binary.
+
+
+"Strand" is a trademark of Artificial Intelligence Ltd., which
+once offered a commercial implementation.
+
+
+Version: 9

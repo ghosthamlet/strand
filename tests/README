@@ -1,0 +1,31 @@
+Strand Tests
+============
+
+This directory contains a number of tests and examples for Strand
+projects, to be used with the included "strand" script.
+
+Basic tests: 
+
+  (these can be executed by entering "strand run <test>.st")
+
+  builtins.st       Tests primitive processes, guards + operators
+  rev.st            Naive reverse
+  task.st           Task tests
+  idle1.st          Idleness-detection
+
+Tests using multiple nodes:
+
+  (execute by doing "strand start <vmname>; strand run <vmname> <test>.st")
+
+  bb                Producer/consumer test with bounded buffer
+  bigdata           Tests transmission of large data sets
+  dcompile          Compile a file using multiple nodes
+  mb                Mandelbrot example (using fixpoint arithmetic)
+  merge             merge/2 test over multiple nodes
+  pc                Producer/consumer
+  sc                Short circuit test
+  srim              Send/receive with incomplete messages
+  tunnel            Distributed producer/consumer 
+  idlen             Idleness-detection
+  all               Test for "all" call-target peer
+  port              Port tests

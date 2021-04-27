@@ -1,0 +1,9 @@
+#!/bin/sh
+m=$(uname -m)
+case $m in
+    arm*)
+        echo arm;;
+    *)
+        echo $m;;
+esac
+

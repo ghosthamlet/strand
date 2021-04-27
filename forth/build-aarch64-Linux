@@ -1,0 +1,12 @@
+#!/bin/sh
+prg=$1
+test -z "$prg" && prg=ff
+forth=ff-aarch64-Linux
+gcc -DLinux '-Wa,-al=k-aarch64.lst' -c k-aarch64.s
+objcopy -O binary k-aarch64.o k-aarch64.bin
+gawk --posix -v 'mbase=400200' -f lst2fgnu.awk k-aarch64.lst > words.f
+od -An -t uC -v k-aarch64.bin | \
+    gawk '{for(i = 1; i <= NF; ++i) printf("%s c, ", $i); print ""}' > kernel.f
+boot/$forth 'include tools.f' 'create target-Linux' 'create target-aarch64' \
+    'include mmf64.f' "msave $forth" cr bye
+./$forth 'include tools.f' 'include Linux.f' 'include sys.f' "save $prg" cr bye

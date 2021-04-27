@@ -1,0 +1,29 @@
+Building Forth
+==============
+
+In case you want to modify the Forth implementation that runs the
+Strand VM, you will find all required sources in this directory.
+Execute one of the "build-*-*" scripts to recompile everything from
+sources for the current platform, using one of the bootstrap binaries
+in the "boot" directory. The resulting executable "ff" can be used
+to replace the "ff" binary from which "strandvm" is built.
+
+Building from sources for x86_64 requires the "nasm"[1] assembler.
+Building for ARM requires gcc(1).
+
+Currently this Forth implementation only runs on the following
+platforms:
+
+    Linux x86_64
+    Linux ARM (32 bit only)
+    OpenBSD x86_64
+    Darwin x86_64
+
+Ports to other operation systems are possible, but may require
+support for different executable file formats. Ports to other
+architectures will require a reimplementation of the assembly
+language kernel. See also the "Porting Guide" contained in the
+file "HACKING", in the base directory of the distribution.
+
+
+[1] https://nasm.us/

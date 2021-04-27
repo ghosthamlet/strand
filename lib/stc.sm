@@ -1,0 +1,12 @@
+#!/usr/bin/env strandvm
+$32:fb5a9efc857db7afe5b8b75a996867d8
+T18:T2:$5:$META1$25:D7:$META/1[1VP0:p;E0:,!X]
+T2:$4:main0$36:D6:main/0[1Vp?P0:(E0:J2:X);E0:K45:X]
+I2:$131:D9:compile/11A[2VG0:LP0:LP1:%;E0:E1:J4:X'2VG0:O?P1:(E1:z1:J3:X);z2:$38:usage: strandvm ... -- SOURCE OUTFILE
+,E1:C3:fmt6:format4:X]
+I3:$34:D6:done/22A[1VG0:%G1:P0:;E0:K12:X]
+T2:$12:compile_file2$311:D14:compile_file/2[I12:VP1:P0:p?P11:?P10:?P9:?P8:?P7:?P6:?P5:?P4:?P3:?P2:(E0:E1:E4:E5:E6:C7:compile10:init_state5:X)(E2:E5:E7:E8:C5:parse12:parse_module4:X)(E3:$5:merge2BE8:$5:merge2BE6:$5:merge2B,...E9:K36:X)(E7:E4:E10:C7:compile13:compile_forms3:X)(E9:E10:E0:E11:J5:X)(E11:K12:X);E0:E2:E3:C3:lex8:lex_file3:X]
+I5:$56:D15:report_errors/4[4VP3:P2:P1:P0:p;E0:E1:E2:z0:E3:J6:X]
+I6:$160:D15:report_errors/55A[3VG0:%G1:%G2:OG3:P1:G4:P2:;E2:E1:!X'8VG0:LP0:P1:G1:%G2:P2:G3:P3:G4:P4:?P7:?P6:?P5:(E7:E3:|E5:|v#!X)(E1:E6:E2:E7:E4:J6:X);E0:E2:E5:E6:J7:X]
+I7:$247:D14:report_error/44A[7VG0:4N0UP0:P1:P2:G1:P3:G2:P4:G3:P5:?P6:(E4:E2:!X)(E6:E0:E1:E5:J8:X);z2:$4:~s: E3:,.E6:C3:fmt6:format4:X'8VG0:4NP0:P1:P2:P3:G1:P4:G2:P5:G3:P6:E0:z0:g`?P7:(z2:$7:~s:~d: E4:E0:,..E7:C3:fmt6:format4:X)(E7:E1:E2:E6:J8:X);E5:E3:!X]
+I8:$77:D15:report_error1/44A[3VG0:%G1:P0:G2:P1:G3:P2:;z2:E0:E1:E2:C3:fmt6:format4:X]

@@ -1,0 +1,668 @@
+Hacking the Strand VM
+=====================
+
+(Version: 9)
+
+                       "leghlaHchu'be'chugh mIn lo'laHbe' taj jej"
+
+                                                (Klingon proverb)
+
+
+I. Introduction
+
+With some knowledge of Forth, the specific dialect used to 
+implement the Strand VM and an understanding of the data-
+layout and architecture of the system, it is relatively
+straightforward to add new primitive processes, expressions
+and guards.
+
+There is no additional documentation about the Forth 
+implementation, study the sources in the "forth" directory
+if you are interested. It is a simple indirect-threaded, more
+or less traditional Forth, using a small assembly-language
+kernel and a meta-compiler that generates a new Forth binary
+by directly producing ELF/Mach-O executables.
+
+This is only a superficial description of the internals, you
+will have to study the source code in detail to obtain a deeper
+understanding of everything.
+
+Note that, when recompiling Strand libraries (in particular the
+compiler itself) you may end up with a situation where you have
+no working Strand compiler. It is advisable to back up all
+*.sm files in the "lib" directory before making modifications
+to the associated *.st files.
+
+
+II. Data Representation
+
+All data is represented either by a pointer, with the lowest 3 bits
+(2 bits on 32 bit architectures) cleared. If the lowest bit is 1,
+then the pointer is an 63/31 bit integer. The garbage collector
+will generally ignore pointers with the lowest bits not being zero
+and pointers that point outside of the GC heap.  If the represented
+value is not an integer, then the word before the address that the
+pointer points to contains a word indicating the type and size of
+the object. The highest 4 bits contain information relevant to the
+garbage collector, the next lower 4 bits give the type, which is
+one of the following:
+
+  0x01      String ("atom")
+  0x02      Variable
+  0x03      Tuple
+  0x04      Process
+  0x05      Module
+  0x06      List
+  0x07      Remote variable
+  0x08      Bytes (byte array)
+  0x09      Port
+
+The remaining bits hold the size of the object in bytes. The data
+pointed to is either a sequence of bytes, if the object is a
+string or byte-array, or a sequence of 1 word fields, depending
+on the type of the object:
+
+  Variable = [Value(Any), Dependencies(List), Id(Int)]
+
+  Tuple = [Element(Any), ...]
+
+  Process = [Instruction-Pointer(Int), Next-Process(Proc),
+             Environment(Tup), Arguments(Tup), Id(Int),
+             Location(Str|0)]
+
+  Module = [Id(Str), Name(Str), Definitions(Tup), Exports(List),
+            Process-Definitions(Tup)]
+
+  List = [Head(Any), Tail(Any)]
+
+  Remote = [Id(Int), Owner(Int), Variable(Var|0)]
+
+  Port = [Owner(Int), Id(Int), Cell(Var|Remote)]
+
+Objects are always word aligned. The garbage collector is a 
+Cheney-style copying semi-space collector, so it is crucial
+that all pointers to heap data are reachable during collection
+or dangling pointers will be the result, having undefined
+consequences.
+
+Strings are interned in a table and thus "unique" - they can be
+compared by simple pointer-equality. Strings are internally 
+terminated by a zero byte to simplify passing them to system
+calls.
+
+
+III. Source Files
+
+The following files make up the Strand VM:
+
+  bc.f          Bytecode compiler
+  bclib.f       Guards, operators and matching
+  dbg.f         Debugging and introspection utilities
+  gc.f          Garbage collector
+  ipc.f         Interprocess communication
+  lib.f         Primitive library
+  limits.f      Global constants
+  log.f         Logging facilities
+  strand.f      Toplevel / loader
+  val.f         Value representation and marshaling/unmarshaling
+  version.f     Strand version number
+  vm.f          Execution engine    
+  Darwin.f
+  Linux.f
+  OpenBSD.f     Platform-specific code
+
+Newly implemented primitives should normally be added to "lib.f",
+but can also be contained in new files. In that case add the 
+appropriate "include" statement to "strand.f".
+  
+
+IV. Adding Primitive Processes
+
+The easiest way of calling Forth code is using the '$foreign_call'
+primitive, so for example, you want to invoke a word that
+sleeps for a number of milliseconds (blocking the whole VM),
+add this word to lib.f:
+
+  : sleep/1  ( i -- ) ?int ms ;
+
+and invoke it like this in your Strand code:
+
+  sleep(MS) :- '$foreign_call'(sleep(MS)).
+
+The argument to "$foreign_call" should be a single named term,
+the resulting Forth word with a "/" character and the arity 
+(number of arguments) appended will be invoked with all the
+term's arguments pushed on the stack.
+
+Extending the VM to support new bytecodes requires adding new
+primitives. There are three types of primitives: builtin processes,
+guards and expression operations. Builtin processes are 
+identified by an index into the builtin table, the bytecode
+compiler will generate a sequence holding the index, and
+execution at runtime extracts the address of the Forth word
+containing the behaviour, subsequently invoking it.
+
+Here is a simple example for a builtin process, we add a
+primitive interfacing to the Linux "rename" system call, used
+like this:
+
+  rename_file(OLDNAME?, NEWNAME?, DONE^)
+
+So it renames the file given by the string OLDNAME to NEWNAME
+and assigns the empty list to the variable given in DONE, when
+the system call returns (it is generally a good idea to provide
+a facility to indicate when an operation with side effects
+is "finished", since all processing in Strand takes place
+concurrently).
+
+Here is the code:
+
+(lib.f)
+
+  82 constant sys_rename        \ Linux/x86_64 system call number
+
+  \ new primitive
+  : rename_file/3  ( old new var -- )
+    !var push                   ( old new ) \ check + save var
+    sreset
+    ?str                        ( old a1 u1 ) \ stringify new
+    rot ?str 2swap              ( a1 u1 a2 u2 ) \ stringify old
+    sys_rename syscall2  if     \ invoke system call + check
+      <err" rename"  ." rename system call failed"  err>  then  \ error
+    pop %[] @ assign ;          \ assign the empty list to var
+    120 builtin \ add last word as index 120 in builtin table
+
+A few non-standard words that are provided by the runtime system 
+should be explained here:
+
+  !var  ( x -- x )
+  ?str  ( x -- a u )
+    Check that the top of the stack (TOS) is a variable or
+    string, respectively. These operations automatically
+    dereference any bound variables and leave the result on
+    the stack. "?str" automatically converts a list into a
+    string and appends a zero byte.
+
+  sreset
+    Resets temporary string area for conversion of lists to
+    strings. This has to be done before the first use of "?str".
+    The address + count returned by "?str" is valid until the
+    next execution of "sreset".
+
+  push  ( x -- )
+  pop  ( -- x )
+    Push and pop values on the "temporary stack", an internal
+    stack that will be tracked by the garbage collector.
+
+  bdata  ( block -- a u )
+    Returns a pointer to a non-immediate block and its size in
+    bytes.
+
+  syscall2  ( x y sys# -- n )
+    Invoke a UNIX system call with 2 arguments and return the
+    result (usually indicating 0 on success).
+
+  <err" ..." ... err> 
+    Redirect all output to stderr, execute the code up to "err> and 
+    terminate the VM. The part between the double quotes should 
+    be a string classifying the error and will be used when the error
+    occurred during execution of a subtask.
+    
+  %[]  ( -- a )
+    An address holding a string representing the empty list.
+
+  assign  ( var x -- )
+    Assigns x to the given variable, possibly resuming processes
+    that were suspended on that variable.
+
+There are numerous other words that you can and will need. Again,
+study the sources for details.
+
+It is essential that a new primitive (process, guard or expression
+operator) dereferences its arguments in case they are bound to
+variables. Any unbound argument (unless it is intended to be
+unbound, for receiving a result, for example) will suspend the
+current execution, effectively dropping all processing so far and
+reenter the primitive once the variable on which the execution
+suspended is bound again. So make sure arguments are dereferenced
+and typechecked (if required) before performing any side effects.
+Suspending a process will automatically clear the data-, return- and
+temporary stacks.
+
+The compiler must be modified to recognize the new builin. Add
+the following line at the end of "src/compile.st", right before
+the last clause of "internal/2":
+
+  internal(rename_file/3, K) :- K := 100.
+
+Now rebuild the VM and the compiler:
+
+  ./ff 'include strand.f' 'make strandvm'
+  ./strandc src/compile.st -o lib/compile.sm
+
+
+V. Adding Guards
+
+A guard is similar to a builtin process, but triggers a failed
+match when the tested condition is not satisfied. Our example
+guard checks whether the argument is an even integer, here used
+on a stream of integers, printing the numbers that are even:
+
+  even_numbers([]).
+  even_numbers([N|R]) :-
+    even(N) |
+    writeln(N),
+    even_numbers(R).
+  even_numbers([_|R]) :-
+    otherwise |
+    even_numbers(R).
+
+(bclib.f)
+
+  : even/1  ( int -- ) !int get_int 1 and ?mismatch ;
+
+Words used here:
+
+  !int  ( x -- x )
+    Dereferences x and checks that it is an integer.
+ 
+  get_int  ( int -- n )
+    Converts internal integer representation to a number.
+
+  ?mismatch  ( f -- )
+    Indicates a failed match when "f" is not zero and exits
+    the word.
+
+New guards must be added to the compiler and the byte-code
+compiler in the VM. In "src/compile.st" add another clause for
+"expr/2" that assigns a byte-code for this guard:
+
+  guard(even/1, K) :- K := 'y'.
+
+Add this line to the word "bguard" in "bc.f":
+  
+  [char] y  ->  postpone even/1  |
+
+Now rebuild the VM and the compiler.
+
+
+VI. Adding Expression Operators
+
+Expression operators are the third type of primitive. They are
+associated with a distinct bytecode just like guards. The 
+difference is that expression operators are
+are normal Forth words that take zero or more plain integer
+arguments and return an integer. They are also allowed exclusively
+in expressions on the right hand side of "is/2".
+
+As an example we add a "popcount" instruction, using an
+algorithm from the excellent book "Hackers Delight"[1].
+Add this code to "bclib.f":
+
+\ note: 32-bit only
+: popcount  ( u1 -- u2 )
+  dup h# 55555555 and over 1 rshift h# 55555555 and +
+  dup h# 33333333 and over 2 rshift h# 33333333 and +
+  dup h# 0f0f0f0f and over 4 rshift h# 0f0f0f0f and +
+  dup h# 00ff00ff and over 8 rshift h# 00ff00ff and +
+  dup h# ffff and over 16 rshift h# ffff and + ;
+
+Now add this line to the word "bcomp1" in "bc.f":
+
+  [char] f  ->  postpone popcount  |
+
+And extend the clauses for "expr/2" in "src/compile.st", right
+before the final "expr" clause:
+
+  expr(popcount/1, K) :- K := 'f'.
+
+Then recompile the VM and "src/compile.st". You can now use
+the "popcount" function in expressions:
+
+  count_bits(X, Y) :- Y is popcount(X).
+
+
+VII. Building Standalone Executables
+
+Modules can be compiled into the VM binary by customizing the build
+process. Taking the "hello, world!" example from above:
+
+  ./ff
+  include strand.f
+  include_module main hello.sm
+  \ perform further customization here ...
+  make hello
+
+Now you have a binary called "hello" that contains the Strand VM
+and the "hello.sm" module. Note the module name "main" - this is
+needed to tell the VM that this module should be initialized and
+started automatically. You can use "include_module" to add further
+modules. When modules are loaded (either explicitly by "get_module/2"
+or by invoking exported processes with explicit module prefix, the
+modules included during the build of the executable take precedence
+before modules loaded from external files.
+
+Command-line processing is still done and the binary accepts the
+same options as the normal "strandvm" program. There are a number
+of deferred words that can be used to customize this behaviour, 
+see "strand.f" for more information.
+
+
+VIII. Porting Guide
+
+Porting the system should be relatively straightforward, depending
+on the target architecture and operating system.  There is no runtime
+machine-code generation and code and data are separated. All
+interfacing to the OS is done with basic system calls and no external
+libraries are used.
+
+All that has to be adapted to the target system is the Forth kernel
+and the system-call layer. "forth/k-arm.s" and "forth/k-x86_64.s"
+contain the machine-code kernel and needs to be reimplemented for
+different target architectures.  There are two awk(1) scripts that
+transform a generated assembly listing from these files into tables
+that are later loaded when building the initial target binary.
+
+"forth/32.f" and "forth/64.f" hold the core words, for 32-bit and
+64-bit machines, respectively. Here some system calls for basic I/O
+are defined and used. More system call invocations are done in
+"forth/sys.f". Depending on the target OS these have to be adapted,
+together with some offsets into operating system structures (like
+"struct stat", for example).
+
+Cross-building for machines of the same word-size is possible
+by modifying the scripts for building the base binary "ff-*-*".
+
+Currently only the generation of ELF (32 and 64 bit) and Mach-O 
+64 bit executables is supported.
+
+If you want to port Strand to an embedded system, you will need to
+replace invocations of basic I/O system calls to use whatever device
+is available, e.g. a serial interface. Some functionality may not
+be available at all, in this case just replace the calls with stubs
+or implement alternative means to load modules, to use shared memory
+for interprocess communication or for performing low-level
+hardware-related operations.
+
+For more information, study the sources and/or contact the author.
+
+
+IX. Internal Primitives
+
+There are a number of internal primitive processes that are used to
+implement higher level operations. Note that these primitives do less
+error checking than the ones documented in the MMANUAL and may change
+from release to release.
+
+  '$add_reference'(ID?)
+    Increase the reference count of the exposed variable with the
+    given id.
+
+  '$assign_port'(ID?, X?)
+    Locates the exposed port-variable with the given ID and assigns
+    X to the stream-end stored in the port's cell.
+
+  '$assign_remote'(ID?, OWNER?, VAL?)
+    Looks up the remote variable with the given id and owner and 
+    assigns VAL to it.
+
+  '$call'(MOD?, PROC?, ARGS?)
+    Invokes the process with the process-index PROC in the module 
+    MOD with the given arguments.
+
+  '$call_remote'(MOD?, PROC?, ARGS?, PEER?)
+    Schedules an event to invoke a process on the remote node PEER,
+    which should be a peer-identifier like "fwd". MOD must be a
+    module-ID or module name, PROC a process-index or process name
+    and ARGS is a tuple with the arguments with which the remote 
+    process is called.
+
+  '$deliver'(MSG?)
+    MSG should be a tuple of the form {ADDRESS, BYTES}. The message
+    encoded in BYTES is sent as to the local node designated by 
+    ADDRESS.
+
+  '$drop_reference'(ID?) 
+    Decreases the reference count of the exposed variable with the
+    given id. If the reference count is zero, the exposed variable
+    will be scheduled for removal from the internal table of exposed
+    variables.
+
+  '$events'(VAR^)
+    Makes VAR the head of the internal event-stream for remote 
+    messages.
+    Events like receiving a message or scheduling sending a message
+    to another node will be assigned to the stream and processed 
+    by the messaging system in the "sys" module.
+
+  '$execute'(CMD?, STATUS^, FIN?, FOUT?, FERR?, CLOSE?, VAR^)
+    Spawns a new process, designated by CMD, which should be a list
+    of strings or character-lists, holding the program and its
+    arguments to run. STATUS will be assigned the exit status when
+    the process terminates. FIN, FOUT and FERR determine how the
+    standard-input, -output and -error file streams should be 
+    redirected and may be -1 (do nothing) or a file-descriptor to
+    which the standard streams should be redirected. CLOSE holds a 
+    list of file-descriptors to close in the child process. When
+    the process has been spawned, the process-identifier (PID)
+    is assigned to VAR.
+
+  '$foreign_call'(CALL)
+    Compiles a call to a Forth word, where CALL can be a string
+    which is the name of a Forth word or a tuple of the form
+    "<WORD>(<ARG1>, ...)", where the arguments are pushed on the
+    stack before invoking <WORD>. The arguments are passed 
+    unchanged and must be dereferenced and/or unpacked as needed.
+
+  '$forward'(FILE?, PACK?)
+    Writes the data in PACK (a bytes object) to the given file.
+
+  '$get_exposed'(ID?, VAR^)
+    Looks up the exposed variable with the given id and assigns it 
+    to VAR.
+
+  '$inject_event'(EVENT?)
+    Injects a new event into the internal event queue used for 
+    processing messages sent between nodes and handle the node
+    communication protocols.
+
+  '$load_module'(MOD?, VAR^)
+    Locates the module with the given module-id and assigns it to 
+    VAR. The module must already be loaded.
+
+  '$log'(X)
+    Writes X to the log file. X will be fully dereferenced.
+
+  '$message_port_owner'(PORT?, NODEID^)
+    Assigns the node-ID (UNIX process-ID) of the node accessible via
+    PORT to NODEID. If the port is not owned, zero is assigned to 
+    NODEID.
+
+  '$module_data'(MOD?, VAR^)
+    Assigns the module-definition of MOD, which may be a module or the
+    name of an accessible module, to VAR. The module-definition consists
+    of a tuple containing all exported and non-exported processes of
+    the module in the form "{NAME, BYTECODE, ...}", where NAME is 
+    either an integer for an internal process or a tuple holding name 
+    and arity for an exported process.
+  
+  '$network_is_idle'
+    Resume all processes that are currently suspend on an "idle/0"
+    guard.
+
+  '$put_bytes'(INDEX?, BYTES?, VAL?, DONE^)
+    Modifies the byte block object BYTES at position INDEX to 
+    contain VAL, which may be an integer, a string, a byte block or 
+    a list of integers. DONE is assigned the empty list, once the 
+    operation completes. Indexing starts at 1.
+
+  '$randomize'(SEED?, VAL^)
+    Produces a pseudo-random number from the integer SEED and
+    assigns it to VAL.
+
+  '$reclaim'(FREE^, TOTAL^)
+    Assigns the amount of free and total bytes in the GC heap to
+    FREE and TOTAL, respectively.
+
+  '$send'(ADDRESS?, VAL?)
+    Sends the message VAL to the node with the given address.
+    Sending a message to ADDRESS "0" in a network of multiple
+    machines then the message target will be the local "ns" node.
+
+  '$send'(ADDRESS?, VAL?, DONE^)
+    Sends a message and assigns the empty list to DONE, when the
+    message has been sent.
+
+  '$read_forwarded'(FILE?, VAR^)
+    Reads a forwarded message tuple from FILE and assigns it to VAR.
+
+  '$register_peer'(PEER?, ADDRESS?)
+    Locally registers the peername with the given address.
+
+  '$resolve_peer'(PEER?, VAR^)
+    Resolves the peer with the given name. If the peer is not already
+    registered, it is requested from the name server by scheduling an
+    event to send the appropriate lookup message.
+
+  '$retrieve_module'(MOD?, ADDRESS?, VAR^)
+    Locates the module with the module-id MOD and assigns it to VAR.
+    If the module is not currently loaded, it will be requested from
+    the node with the given address by scheduling a corresponding
+    event.
+
+  '$run'(MOD?, PROC?, ARGS?, SVAR^, CVAR^)
+    Starts a new task in the module given by the module-id in MOD, 
+    running the process designated by the process-index PROC with
+    the given arguments in the tuple ARGS. SVAR and CVAR are the
+    status and control streams for the new task. The compiler expands
+    invocations of "run/3" into a call to this primitive.
+
+  '$statistics'(VAR^)
+    Assigns a tuple with 13 elements to VAR, holding VM statistics.      
+    The elements are, in order:
+
+      1. Bytes in use in static string space
+      2. Number of strings
+      3. Number of exposed variables
+      4. Number of remote variables
+      5. Number of received messages
+      6. Bytes received so far
+      7. Number of sent messages
+      8. Bytes sent so far
+      9. Number of reductions
+      10. Number of suspensions
+      11. Number of variable dereferences
+      12. Number of suspended processes
+      13. Number of active processes
+
+
+X. Protocols
+
+Communication among nodes uses several protocols to allow exchanging
+variable values, registering nodes and remote process invocations and
+are implemented in the "sys" nmodule.
+
+1. Remote Variable Protocol
+
+To transparently handle variable access across multiple nodes, a
+moderately complex protocol is used to make sure remote access and
+assignment works across node boundaries without additional efforts
+taken by user code.
+
+When an uninstantiated variable created in a node A is serialized
+and sent to another node B, a remote placeholder is sent, containing
+information about the originating node (A) and a number uniquely
+identifying the variable, with the variable being registered in a
+special table in A. The placeholder is treated in every respect
+just like a normal variable and can be sent to other nodes, keeping
+the information about its origin.
+
+When the variable is finally bound to a value, the exchange depends
+on where the variable was bound: either in the originator node or
+in a receiver node. When bound at the origin, no additional
+communication takes place, when bound at another node than the
+origin, a "value" message is sent to the originating node. Once a
+node requests a value for a placeholder, a "read" message is sent
+to the origin, either resulting in a "value" message from the origin,
+or suspending the process waiting for the result:
+
+    Local assignment:
+
+                      A                       B
+
+ register R            --- <sends R to B> --->
+
+ add ref for R         <----- addref(R) ------
+
+                       <------ read(R) -------
+    
+ drop ref for B in A   ----- value(R, X) ---->   
+       
+    Remote assignment:
+ 
+                      A                       B
+
+ register R            --- <sends R to B> --->
+
+ add ref for R         <----- addref(R) ------
+
+ drop ref for B in A   ----- value(R, X) ---->   
+
+The reference counting scheme is required to drop remotely accessible
+variables when they are neither referenced in A or B.  Any additional
+node receiving the placeholder for a particular variable for the
+first time increases the reference count at A. Everytime a node
+receives a value for the placeholder the count decreases until no
+external references exist, meaning the registered variable can be
+dropped from the table of "exposed" variables.
+
+2. Remote Process Invocation Protocol
+
+Remote process invocations of the form 
+
+    <process>(...)@PEER
+
+are communicated using a call message, after PEER has been resolved
+(which must be an integer address or a registered peer name):
+
+    call(MODID?, PIDX?, ADDRESS?, ARGS?)
+
+MODID is the hash of the module in which the process is defined,
+PIDX is the process-definition index of the target process in the
+referenced module, ADDRESS is the address of the calling node and
+ARGS is a tuple holding the arguments of the process invocation.
+If the target module has not yet been loaded at the destination
+node, then the latter will send a message to ADDRESS to retrieve
+the target module:
+
+    get_module(MODID?, MOD^)
+
+Here MODID designates the desired module hash and MOD holds an
+unbound variable that will be filled with the complete module
+definition.
+
+                      A                            B
+ call                  ---- call(MI, P, B, AL) --->
+
+ get module            <---- get_module(MI, M) ----
+
+All back-communication between callee and caller is handled via
+hte normal remote variable protocol.
+
+3. Port Protocol
+
+Ports are always "owned" by the node on which they are created.
+When a port is sent to another node, a placeholder port will be
+created remotely and "send/2" operation on the remote representation
+communicates the value back to the node owning the port:
+
+    assign_port(REMID?, X?)
+
+REMID is the ID of an exposed variable holding the output stream
+end of the port and X is the value sent.
+
+
+XI. References
+
+[1] Warren Jr., Henry S. (2002). Hacker's Delight (1 ed.). 
+    Addison Wesley. ISBN 978-0-201-91465-8.

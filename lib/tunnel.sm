@@ -1,0 +1,10 @@
+#!/usr/bin/env strandvm
+$32:a43674ff8bc64b4415200f93bff0227c
+T16:T2:$5:$META1$25:D7:$META/1[1VP0:p;E0:,!X]
+T2:$6:$start0$63:D8:$start/0[2Vp?P1:?P0:(z0:E1:K52:X)(E1:J7:X)(E0:J2:X);E0:K1:X]
+I2:$75:D6:loop/11A[G0:%;$19:event stream closedK7:X'2VG0:LP0:P1:(E1:J2:X);E0:J3:X]
+I3:$522:D8:handle/11A[SsSt6:2VG0:2NP0:P1:;z1:E1:E0:2BK53:X'@$9:send_read32VG0:3N$9:send_readg=P0:P1:;E1:z0:E1:E0:$4:read4BK2:X'@$10:send_value43VG0:4N$10:send_valueg=P0:P1:P2:;E1:E2:E1:E0:$5:value4BK2:X'@$11:send_addref32VG0:3N$11:send_addrefg=P0:P1:;E0:E1:$6:addref2BK2:X'@$4:read44VG0:4N$4:readg=P0:P1:P2:?P3:(E3:E2:E0:E1:J5:X);E0:E3:K6:X'@$5:value43VG0:4N$5:valueg=P0:P1:P2:;E0:E1:E2:K5:X'@$6:addref21VG0:2N$6:addrefg=P0:;E0:K50:XSa0:1VG0:$9:terminateg=?P0:(E0:J6:X);z1:$8:0       E0:K40:XSo'1VG0:P0:;E0:$12:unkown_event2BK7:X]
+I4:$45:D11:send_with/3[3VP2:P1:P0:pE0:gd;E1:E2:K2:X]
+I5:$75:D12:send_value/4[4VP3:P2:P1:P0:pE0:gd(E1:E0:E3:E2:$5:value4BK2:X);E2:K51:X]
+I6:$26:D6:stop/11A[G0:%;z0:K12:X]
+I7:$73:D8:accept/11A[2VG0:%?P1:?P0:(E0:K54:X)(z0:E1:K52:X)(E1:J7:X);z0:E0:K64:X]

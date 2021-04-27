@@ -1,0 +1,11 @@
+#!/usr/bin/env strandvm
+$32:a61d25f1ad876ce456007e7d77e9aef2
+T18:T2:$5:$META1$25:D7:$META/1[1VP0:p;E0:,!X]
+T2:$16:read_char_stream2$60:D18:read_char_stream/2[3VP1:P0:p?P2:(E2:E1:J5:X);E0:E2:J2:X]
+T2:$16:read_byte_stream2$64:D18:read_byte_stream/2[3VP1:P0:p?P2:(E2:E0:E1:J3:X);E0:E2:K52:X]
+I3:$119:D18:read_byte_stream/33A[5VG0:%G1:P0:G2:P1:?P4:?P3:?P2:(E2:E1:E3:K107:X)(E2:E4:K23:X)(E4:E0:E3:J4:X);E0:z1024:E2:K33:X]
+I4:$110:D19:read_byte_stream2/33A[2VG0:0UG1:OG2:P1:;E1:,!X'4VG0:P0:G1:P1:G2:P2:E0:|0g>?P3:(E3:E1:E2:J3:X);E1:E3:K52:X]
+T2:$11:decode_utf82$114:D13:decode_utf8/22A[1VG0:%G1:P0:;E0:,!X'5VG0:P0:G1:P1:E0:,g`?P4:?P3:?P2:(E1:E2:E4:.!X)(E3:E4:J5:X);E0:E2:E3:K47:X]
+T2:$9:scan_line3$203:D11:scan_line/33A[2VG0:%G1:P0:G2:P1:(E1:,!X);E0:,!X'3VG0:LI10:UP0:G1:P1:G2:P2:(E2:E0:!X);E1:,!X'3VG0:LI13:ULI10:UP0:G1:P1:G2:P2:(E2:E0:!X);E1:,!X'5VG0:LP0:P1:G1:P2:G2:P3:?P4:(E1:E4:E3:J6:X);E2:E0:E4:.!X]
+T2:$11:split_lines2$96:D13:split_lines/22A[1VG0:%G1:P0:;E0:,!X'4VG0:P0:G1:P1:E0:gj?P3:?P2:(E0:E2:E3:J8:X);E1:E2:E3:.!X]
+I8:$175:D13:split_lines/33A[3VG0:LI10:UP0:G1:P1:G2:P2:(E0:E2:J7:X);E1:,!X'3VG0:LI13:ULI10:UP0:G1:P1:G2:P2:;z10:E0:.E1:E2:J8:X'5VG0:LP0:P1:G1:P2:G2:P3:?P4:(E1:E4:E3:J8:X);E2:E0:E4:.!X]

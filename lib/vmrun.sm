@@ -1,0 +1,7 @@
+#!/usr/bin/env strandvm
+$32:600613555c979b28681bee749264973d
+T10:T2:$5:$META1$25:D7:$META/1[1VP0:p;E0:,!X]
+T2:$4:main0$36:D6:main/0[1Vp?P0:(E0:J2:X);E0:K45:X]
+I2:$131:D12:run_module/11A[5VG0:LP0:%?P4:?P3:?P2:?P1:(E1:E2:$5:$META2BK24:X)(E2:E3:J4:X)(E1:E3:E4:C3:sys7:execute3:X)(E4:J3:X);E0:E1:K25:X]
+I3:$55:D6:wait/11A[G0:$7:successg=;z0:K12:X'1VG0:P0:;E0:K13:X]
+I4:$245:D18:get_machine_type/22A[1VG0:%G1:P0:;E0:$4:ring!X'2VG0:L2N$7:machineg=$4:ringg=OG1:P1:;E1:$4:ring!X'2VG0:L2N$7:machineg=$5:torusg=OG1:P1:;E1:$5:torus!X'3VG0:L2N$7:machineg=P0:OG1:O;E0:$20:unknown_machine_type2BK13:X'3VG0:LOP1:G1:P2:;E1:E2:J4:X]

@@ -1,0 +1,316 @@
+#!/bin/sh
+PORT_SIZE=32768
+iroot=$(which strandvm 2> /dev/null)
+un=$(uname)
+normalize () {
+    if [ $un = Darwin ]; then
+        r=$(readlink "$1")
+        if [ -z "$r" ]; then
+            echo $1
+        else 
+            echo $r
+        fi
+    else 
+        readlink -f "$1"
+    fi
+}
+if [ -z "$iroot" ]; then
+    iroot=$(dirname "$0")
+else 
+    iroot=$(dirname "$iroot")
+fi
+[ "$iroot" = . ] && iroot=$PWD
+for d in $(echo "$iroot:$PATH" | awk -F ':' '{for(i=1; i<NF; ++i) print $i}' -); do
+    if [ -x "$d/strand" ]; then
+        iroot=$(dirname $(normalize "$d/strand"))
+        break
+    fi
+done
+usage () {
+    echo 'usage: strand -h
+       strand -c SRCFILE [-vm VMFILE] [-i LIBDIR] [-o OUTFILE]
+       strand -g [MSGFILE]
+       strand start ID [-m MAC] [-n NODES] [-l] [-s] [-hs] [-d] [-i DIRECTORY] [HOST:RMAC ...]
+       strand stop ID
+       strand watch ID
+       strand term ID [OPTION ...]
+       strand home
+       strand run [ID] [OPTION ...] MODULE
+       strand plot [-r MIN:MAX] AXIS ... LOGFILE' >&2
+    exit $1
+}
+field () {
+    echo $1 | awk -F : "{print \$$2}" -
+}    
+vm_stop () {
+    [ -z "$1" ] && usage 1
+    vmfile="$1"
+    . "$vmfile"
+    rm -f "$vmfile"
+    for pid in $pids; do
+        kill $(field $pid 2) 2> /dev/null
+    done
+    for tun in $tuns; do
+        kill -SIGINT $(field $tun 3) 2> /dev/null
+    done
+}
+vm_run () {
+    vmfile=
+    opts=
+    mod=
+    while [ -n "$1" ]; do
+        case "$1" in
+            -l|-i|-P)
+                opts="$opts $1 $2"
+                shift;;
+            --) 
+                shift
+                break;;
+            -*) opts="$opts $1";;
+            *.st)
+                [ -n "$mod" ] && usage 1
+                compile_file -c "$1"
+                d=$(dirname "$1")
+                [ "$d" = . ] || opts="$opts -i $d"
+                mod=$(basename "$1" .st);;
+            *.sm)
+                [ -n "$mod" ] && usage 1
+                d=$(dirname "$1")
+                [ "$d" = . ] || opts="$opts -i $d"
+                mod=$(basename "$1" .st);;                
+            *)
+                if [ -f "$1.sm" ]; then
+                    [ -n "$mod" ] && usage 1
+                    d=$(dirname "$1")
+                    [ "$d" = . ] || opts="$opts -i $d"
+                    mod=$(basename "$1" .st)
+                elif [ -z "$vmfile" ]; then
+                    vmfile="$1"
+                elif [ -n "$mod" ]; then
+                    usage 1
+                else
+                    d=$(dirname $1)
+                    mod=$(basename $1 .sm)
+                    [ "$d" = "." ] || opts="$opts -i $d"
+                fi;;
+        esac
+        shift
+    done
+    [ -z "$mod" ] && usage 1
+    if [ -n "$vmfile" ]; then
+        vmid=$(basename "$vmfile")
+        . "$vmfile"
+        $iroot/strandvm -m $mac -f /tmp/strand.vm.$vmid.$mac $vmopts $opts sys vmrun -- "$mod" "$@" &
+    else
+        $iroot/strandvm -i $iroot/lib $opts "$mod" -- "$@"
+    fi
+}
+vm_watch () {
+    [ -z "$1" ] && usage 1
+    vmfile="$1"
+    . "$vmfile"
+    hn=$(hostname -s)
+    while [ -f "$vmfile" ]; do
+        sleep 5
+        npids=
+        tmp=/tmp/strand.vm.$vmid
+        for pid in $pids; do
+            i=$(field $pid 1)
+            ppid=$(field $pid 2)
+            if ! kill -0 $ppid 2> /dev/null; then
+                echo "[$hn:$mac] restarting node $i" >&2
+                vmlog=
+                [ -n "$logging" ] && vmlog="-l $mac-$mp.log"
+                $iroot/strandvm -m $mac -P $i -f $tmp.$mac -i $iroot/lib sys $vmopts $vmlog -- -vm $nodes $rmacs &
+                ppid=$!
+            fi
+            npids="$npids $i:$ppid"
+        done
+        pids="$npids"
+        ntuns=
+        for tun in $tuns; do
+            rhost=$(field $tun 1)
+            rmac=$(field $tun 2)
+            tpid=$(field $tun 3)
+            if ! kill -0 $tpid 2> /dev/null; then
+                echo "[$hn:$mac] restarting tunnel $tpid" >&2
+                tlog1=
+                tlog2=
+                if [ -n "$logging" ]; then
+                    tlog1="-l t-$mac-$rmac.log"
+                    tlog2="-l /tmp/strand.$vmid.t-$rmac-$mac.log"
+                fi
+                socat "EXEC:'$iroot/strandvm -m $mac -f $tmp.$mac $tlog1 -P $rmac tunnel',sigint" \
+                    "EXEC:'/usr/bin/ssh -o ServerAliveInterval=30 $rhost \$(strand home)/strandvm -m $rmac $tlog2 -P $mac -f $tmp.$rmac -i \$(strand home)/lib tunnel',sigint" &
+                tpid=$!
+            fi
+            ntuns="$ntuns $rhost:$rmac:$tpid"
+        done
+        tuns="$ntuns"
+    done
+}
+vm_start () {
+    vmfile=
+    mac=1
+    nodes=4
+    remotes=
+    rmacs=
+    vmopts=
+    logging=
+    while [ -n "$1" ]; do
+        case "$1" in
+            --)
+                shift
+                vmopts="$@"
+                break;;
+            -l) logging=1;;
+            -i)
+                sw = $1
+                shift
+                vmopts="$vmopts $sw $1";;
+            -s|-d|-hs) vmopts="$vmopts $1";;
+            -m) 
+                shift
+                mac="$1";;
+            -n)
+                shift
+                nodes="$1";;
+            -*) usage 1;;
+            *:*)
+                remotes="$remotes $1"
+                rm=$(field $1 2)
+                rmacs="$rmacs $rm";;
+            *) 
+                if [ -z "$vmfile" ]; then
+                    vmfile="$1"
+                else
+                    usage 1
+                fi;;
+        esac
+        shift
+    done
+    [ -z "$vmfile" ] && usage 1
+    vmid=$(basename "$vmfile")
+    pids=
+    tmp=/tmp/strand.vm.$vmid
+    [ -f $tmp.$mac ] || gen_msgfile $tmp.$mac 2> /dev/null
+    i=0
+    while [ $i != $nodes ]; do
+        mp=$(expr $i + 32)
+        vmlog=
+        if [ -n "$logging" ]; then
+            vmlog="-l $mac-$mp.log"
+        fi
+        "$iroot/strandvm" -m $mac -P $mp -f $tmp.$mac -i "$iroot/lib" sys $vmopts $vmlog -- -vm $nodes $rmacs &
+        pids="$pids $mp:$!"
+        i=$(expr $i + 1)
+    done
+    tuns=
+    for remote in $remotes; do
+        rhost=$(field $remote 1)
+        rrmac=$(field $remote 2)
+        tlog1=
+        tlog2=
+        if [ -n "$logging" ]; then
+            tlog1="-l t-$mac-$rrmac.log"
+            tlog2="-l /tmp/strand.$vmid.t-$rrmac-$mac.log"
+        fi
+        socat "EXEC:'$iroot/strandvm -m $mac -f "$tmp.$mac" $tlog1 -P $rrmac tunnel',sigint" \
+            "EXEC:'/usr/bin/ssh -o ServerAliveInterval=30 $rhost \$(strand home)/strandvm -m $rrmac $tlog2 -P $mac -f $tmp.$rrmac -i \$(strand home)/lib tunnel',sigint" &
+        tuns="$tuns $remote:$!"
+    done
+    echo "vmid=$vmid" > $vmfile
+    echo "nodes=$nodes" >> $vmfile
+    echo "mac=$mac" >> $vmfile
+    echo "rmacs='$rmacs'" >> $vmfile
+    echo "pids='$pids'" >> $vmfile
+    echo "tuns='$tuns'" >> $vmfile
+    echo "vmopts='$vmopts'" >> $vmfile
+    echo "logging=$logging" >> $vmfile
+}
+vm_term () {
+    [ -z "$1" ] && usage 1
+    vmfile="$1"
+    shift
+    . "$vmfile"
+    exec "$iroot/strandvm" -i "$iroot/lib" -m $mac -f /tmp/strand.vm.$vmid.$mac sys vmterm "$@"
+}
+gen_msgfile () {
+    if [ -n "$1" ]; then
+        msgfile="$1"
+    else
+        msgfile=strand.msg
+    fi
+    dd if=/dev/zero of="$msgfile" bs=$PORT_SIZE count=256
+}
+checksum() {
+    if [ "$un" = Linux ]; then
+        md5sum "$1" | awk '{print $1}' -
+    else 
+        md5 -q "$1"
+    fi
+}
+outfile=
+compile_file () {
+    cvm=$iroot/strandvm
+    copts="-i $iroot/lib"
+    src=
+    cok=
+    while [ -n "$1" ]; do
+        case "$1" in
+            -c) cok=1;;
+            -vm)
+                shift
+                cvm="$1";;
+            -i)
+                shift
+                copts="$copts -i $1";;
+            -o)
+                [ -n "$outfile" ] && usage 1
+                shift
+                outfile="$1";;
+            *) src="$src $1";;
+        esac
+        shift
+    done
+    [ -n "$cok" ] || usage 1
+    for sf in $src; do
+        of=$outfile
+        d=$(dirname "$sf")
+        test -z "$of" && of=$d/$(basename "$sf" .st).sm
+        tmp="$(mktemp -t strandc.XXXXXX)"
+        if "$cvm" $copts stc -- $sf $tmp; then
+            test -f "$tmp" || exit 1
+            echo '#!/usr/bin/env strandvm' > "$of"
+            printf %s '$32:' >> "$of"
+            checksum "$tmp" >> "$of"
+            cat "$tmp" >> "$of"
+            chmod +x "$of"
+            rm -f "$tmp"
+        else
+            rm -f "$tmp"
+            exit 1
+        fi
+    done
+}
+[ -z "$1" ] && usage 1
+cmd="$1"
+shift
+case "$cmd" in
+    -h|-help|--help) usage 0;;
+    stop) vm_stop "$@";;
+    run) vm_run "$@";;
+    watch) vm_run "$@";;
+    term) vm_term "$@";;
+    home) echo $iroot;;
+    start) vm_start "$@";;  
+    plot) exec $iroot/plot "$@";;
+    -g) gen_msgfile "$@";;
+    -c) compile_file -c "$@";;
+    -o) 
+        outfile="$1"
+        shift
+        compile_file "$@";;
+    *)
+        usage 1;;
+esac

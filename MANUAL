@@ -1,0 +1,1710 @@
+Strand User's Manual
+====================
+
+(Version: 9)
+                    
+                                                    三個和尚沒水喝
+
+                                            (Chinese Proverb)
+
+
+I. Introduction
+
+This is an open-source implementation of the "Strand" parallel
+Prolog dialect as described in [1]. Strand is written in Forth and
+runs on Linux x86-64/ARM/PPC64, Mac OS X x86-64 and OpenBSD amd64 
+systems, has no dependencies and is entirely self-contained.
+
+"Strand" is a trademark of Artificial Intelligence Ltd.
+
+
+II. Build and installation
+
+After unpacking the distribution archive you first need to create
+the Forth interpreter on top of which which the Strand VM is
+implemented. Run the following command to obtain the "ff" binary
+which will be used to build the VM:
+
+  forth/boot/ff-<ARCH>-<OS> 'include forth/tools.f' \
+    'include forth/<OS>.f' 'include forth/sys.f' 'save ff' bye
+
+Where "<OS>" is what "uname" should usually report. Next, create 
+the actual Strand VM:
+
+  ./ff 'include strand.f' 'make strandvm'
+
+You can copy "strandvm" now into a location that is listed in your
+PATH environment variable, or just run it from the current directory.
+The "strandvm" has no external dependencies, but needs access to
+the location where the compiled library code can be found. See below
+how to override this library directory.
+
+There is also a shell script called "strand" that is used to compile
+Strand sources into loadable modules, and run these in several forms. 
+
+The "strand" also tool provides a useful abstraction for managing of 
+multiple nodes and machines. See below for more information about this.
+
+The easiest way is to create a symbolic link to the "strand" script
+is the following, assuming "$HOME/bin" exists and is in your PATH:
+
+  ln -s <strand-distribution-directory>/strand $HOME/bin
+
+If you want to make modifications to the Forth system, check out
+the file "README" in the "forth" directory for more information.
+Note that this is only necessary if you want to change or enhance
+the base system (or fix bugs) - binaries for all supported platforms
+are included in this distribution.
+
+
+III. Usage
+
+The Strand VM is invoked like this:
+
+  strandvm [-h] [-s] [-hs] [-d] [-l LOGFILE] [-p PROCESS] [-i LIBDIR]
+    [-f MSGFILE] [-P PORT] [-m MACHINE] [-r SHIFT] MODULE ... 
+    [-- ...]
+
+The MODULE arguments give compiled Strand modules that should be
+loaded and executed. At least one module must given, where the
+optional ".sm" extension may be omitted. The module will be loaded
+if it can be found in the current directory in a directory named
+"lib" or in one of the directories specified with the "-i" option.
+
+The command line options that may be given are the following:
+
+  -h            show basic usage information.
+  -v            print version and exit.
+  -d            enable debug mode.
+  -s            enable logging of statistical information.
+  -hs           enable logging of heap-statistics only.
+  -l LOGFILE    write logging output to LOGFILE, if LOGFILE already
+                exists, the output is appended. If LOGFILE is "-"
+                logging output is written to the console.
+  -p PROCESS    names module and process that should be invoked
+                on startup (defaults to "main").
+  -i LIBDIR     prepend LIBDIR to the list of directories where
+                compiled modules can be found. This option may be
+                given multiple times.
+  -f MSGFILE    specify memory-mapped file used for inter-node
+                communication (defaults to "strand.msg").
+  -P PORT       specify port-number for inter-node communication.
+  -m MACHINE    specify machine ID for tunnelled node-communication.
+  -r SHIFT      specify shift-amount for internal idle-clock.
+  --            ignore all following command line options.
+
+If a module loaded on the command line exports a process named
+"$start" with arity zero, then this process is spawned at startup.
+If the "-p" option is given and has the form "MODULE:PROCESSNAME"
+and MODULE has been loaded and exports a zero-arity process named
+PROCESSNAME, then that process is spawned. Otherwise the zero-arity
+process with the name given is started in all loaded modules that
+export this name.
+
+The virtual machine executes until one of the following
+conditions occur:
+
+  - All processed terminated
+  - No unsuspended active processes exist (deadlock)
+  - A process head fails to match
+  - A fatal error was signalled
+  - The strandvm process is interrupted or terminated
+
+To run Strand code, you first need to compile a source module into
+the internal representation required by "strandvm". Given this
+file:
+
+  % hello.st
+  main :- writeln('hello, world!').
+
+Run these commands to compile and execute it:
+
+  strand -c hello.st
+  strandvm hello
+
+or simply
+
+  strand hello.st
+
+All filenames given to "strand -c" will be translated to loadable 
+".sm" files in the same directory as the source file. If "-o" is 
+given, only a single FILENAME may be given. "strandvm" must be in your 
+PATH so "strand" can find it to run the Strand compiler.
+
+The sources for the Strand library is in the "src" directory.  "lib"
+contains precompiled versions of all files in "src", to recompile
+one of the files in case you make changes, simply compile them:
+
+  strand -c src/FILE.st -o lib/FILE.sm
+
+
+IV. The Strand Language
+
+Strand is a logic programming language for parallel computing,
+derived from Parlog[2] which itself is a dialect of Prolog[3].
+While the language superficially resembles Prolog, depth-first
+search and backtracking are not provided. Instead execution of a
+goal spawns a number of processes that execute concurrently.
+
+Strand provides pattern matching but no general unification, instead
+logic variables must be explicitly assigned, which simplifies the
+semantics considerably.
+
+The following gives a basic introduction to the language, for more
+information consult the book[1] which gives a detailed description
+of the language and explains the programming concepts extensively.
+
+A Strand program consists of a number of process definitions or
+"rules", where each process definition has the form
+
+  H :- G, ... | B, ... .
+
+H is the head of the process definition, G, ... are guard expressions
+and B, ... are the body. If no guards are present the "|" operator
+may be omitted. An empty body is denoted by "true". If a process
+definition has no guards and no body, the ":-" operator can be
+omitted.
+
+Invocation of a process finds the first process definition with the
+given name and arity, a matching head and where all goals evaluate
+to true. When multiple definitions for the given name and arity
+exist, they are tried in an unspecified order until one match
+succeeds or the process suspends.
+
+Guards are primitive logical operators and can not be defined by
+user code. If the evaluation of a guard expression fails, the
+resolution of another untried process definition is attempted until
+no remaining rule exists. If no process definition can be matched,
+the whole virtual machine terminates with an error message.
+
+Body goals are primitive or user-defined process invocations that
+spawn new processes and add them to the pool of currently active
+processes. Each goal of a rule is spawned in parallel in an unspecified
+order.
+
+An example:
+
+  % print even numbers between 1 and 10
+
+  main :- count(1).
+
+  count(11).
+  count(N) :- N =< 10 | even(N), N2 is N + 1, count(N2).
+
+  even(N) :- M is N \\ 2, even(M, N).
+
+  even(0, N) :- writeln(N).
+  even(_, _) :- otherwise | true.
+
+Even if somewhat contrived, this demonstrates a number of Strand
+constructs. After invocation of "main", a recursive loop is started
+by invoking "count(1)" that counts from 1 to 10.  If the argument
+matches 11, "count" simply terminates. On an argument less or equal
+to 10, the second rule is fired and invokes 3 processes: a call to
+"even", a process that adds 1 to the value of "N" and assigns it
+to the fresh variable "N2" and another recursive invocation of
+"count" with the increased count as argument. Note here that the
+two rules of "count" are mutually exclusive, note also that all
+spawned processes of the body execute in parallel.
+
+"even" with a single argument (arity 1) takes the modulo of its
+argument and 2 and invokes "even/2" (process definitions are
+identified by name and arity both). "even/2" will either match the
+first argument with 0 and write the second argument to the console
+or will do nothing and terminate. "otherwise" is a catch-all guard
+that succeeds if all textually preceding rules did not match or any
+guard in them failed. The second rule of "even/2" has no body but
+a guard, so a default body of "true" must be given.
+
+Variables in Strand are logical variables - they are first-class
+objects, can only be assigned once and may be assigned to other
+variables. Assignment in Strand is always explicit, by using the
+":=" operator.
+
+If a variable has no value (is "unbound"), then a process suspends
+until the variable has been bound elsewhere. Matching of an unbound
+variable in a rule head will suspend execution of the rule. Subsequent
+binding may still make the match fail and another rule will be
+tried. Referencing an unbound variable in a primitive process or
+an arithmetic expression will suspend the process (not the rule -
+all other processes in a rule body still execute until encountering
+unbound variables themselves).
+
+The order of execution of currently running Strand processes is
+entirely determined by variable-dependencies.  Sequencing and
+synchronization is fully controlled by the data-flow from producers
+(processes that assign values to variables) and consumers (processes
+that depend on the values of variables).
+
+Strand is dynamically typed and supports the following value types:
+
+- Integral signed numbers
+- Immutable strings
+- Tuples: sequences of 0 or more values
+- Singly-linked lists of values
+- Variables
+- Byte blocks
+- Modules: collections of process definitions
+- Ports: identity-preserving multi-writer streams
+
+Numbers are constrained to the word-width of the underlying machine
+(32 or 64 bits) with one bit used for marking. Intermediate results
+in arithmetic expressions use the full word width.  Numbers can be
+given in an arbitrary base from 2 to 36 by using the "RADIX'NUMBER"
+syntax. If RADIX is "0", then NUMBER is interpreted as a character
+and the resulting value is the character's code.
+
+Strings must begin with a lowercase letter and consist only of
+letters numbers or the "_" (underscore) character. Strings containing
+other characters must be enclosed in '...' (single quote). Escape
+sequences of the form "\X" are supported where X may be "n" (newline),
+"t" (tab), "e" (esc) or "r" (carriage return).
+
+Sequences of characters enclosed in "..." (double quotes) represent
+lists of character codes, so 
+
+  "foo" 
+
+is identical to
+
+  [0'f, 0'o, 0'o]
+
+Tuples are fixed size sequences with arbitrary contents. Lists have
+a head and tail cell with arbitrary values. Variables can be assigned
+to other variables, chains of variable references are undeferenced
+transparently and automatically.
+
+Byte blocks are arrays of bytes that can be used as a more space
+efficient sequence of small numbers and to communicate with operating
+system facilities. Byte blocks are written and read using the 
+"#XX.." syntax, where "#" is followed by one or more hexadecimal
+digits. If a byte block literal has an uneven number of digits, an
+implicit "0" is assumed at the end. "#" denotes the empty byte block
+object.
+
+Modules can be passed as values to other processes and exported
+process definitions may be invoked explicitly.
+
+Ports are a convenient abstraction over streams, mostly similar to the
+the description in [12], allowing multiple writers and multiple readers
+while preserving the identity of the target object. Thus ports can
+be stored in data-structures and receive messages without rebuilding the
+data for holding the new stream-end as with basic streams.
+
+Memory management is fully automatic using a Cheney-style[4]
+semi-space garbage collector.
+
+The main differences between Strand and Prolog can be summarized
+as follows:
+
+- Strand has no backtracking: once a rule head matches and the guards
+  succeed, all remaining solutions are abandoned.
+
+- All goals of a rule are executed in parallel, in an arbitrary order.
+
+- Strand has no general unification - rule heads and guards only match,
+  variables are assigned exclusively by ":=/2", "assign/3", "is/2" and
+  primitives that assign results to argument variables.
+
+- Referencing an unbound variable suspends the current process until
+  the variable has been bound.
+
+
+V. Primitive Processes
+
+This implementation of Strand provides the following built-in
+processes. Unless specified all primitive processes suspend when
+encountering an unbound variable. Arguments marked "?" are considered
+input-arguments, arguments marked "^" are expected to be unbound
+variables and will be assigned a result. Any errors that are signalled
+by one of these primitives will terminate the Strand VM. Additional
+primitive processes are available for low-level purposes. Consult
+the library code and VM sources for more details.
+
+  Data:
+
+    VAR^ := VAL?
+      Assigns VAL to VAR. If VAL is unbound, the assignment does
+      not suspend. If VAR already has a value an error is signalled.
+      It is forbidden to create circular structures. Currently this
+      is only detected for some situations at compile time.
+
+    assign(VAR^, VAL?, DONE^)
+      Assigns VAL to the unbound variable VAR. If the assignment
+      is finished the empty list is assigned to DONE.
+
+    byte_length(VAL?, LEN^)
+      Assigns the length of the internal representation of VAL in 
+      bytes to LEN. If VAL is an integer, an error is signalled.
+
+    VAR^ is EXPR
+      Evaluates the arithmetic expression EXPR and assigns the
+      result to VAR. See below for a list of supported arithmetic
+      operators.
+
+    length(VAL?, LEN^)
+      Assigns the length of the string, bytes object, list or tuple 
+      in VAL to LEN.
+
+  Tuples:
+
+    get_arg(INDEX?, TUPLE?, ITEM^)
+    get_arg(INDEX?, TUPLE?, ITEM^, DONE^)
+      Assigns the INDEXth element of TUPLE to ITEM. Indexes start
+      from 1. Assigns the empty list to DONE, when completed.
+
+    make_tuple(LEN?, TUPLE^)
+      Create a tuple with LEN elements, each initialized to an
+      unbound variable and assign it to TUPLE.
+
+    put_arg(INDEX?, TUPLE?, VAL?)
+    put_arg(INDEX?, TUPLE?, VAL?, DONE^)
+      Assigns VAL (which may be unbound) to the INDEXth element
+      of TUPLE. Assigns the empty list to DONE, when the
+      assignment is complete.
+
+  Data type conversion:
+
+    char_list_to_bytes(LIST?, BYTES^)
+      Converts the UNICODE character codes in LIST to a byte block
+      object and assigns it to BYTES.
+
+    bytes_to_char_list(BYTES?, LIST^, TAIL?)
+      Converts the UTF-8 encoded data in the byte block object BYTES
+      into a list of UNICODE code points. The created list will be 
+      terminated with TAIL, which may be unbound.
+
+    bytes_to_list(BYTES?, LIST^, TAIL?)
+      Converts a byte block object into a list of integers. The created 
+      list will be terminated with TAIL, which may be unbound.
+
+    integer_to_list(INT?, LIST^)
+    integer_to_list(INT?, BASE?, LIST^)
+    integer_to_list(INT?, BASE?, LIST^, TAIL?)
+      Converts the integer INT into a list of characters codes using
+      the numeric base given in BASE, assigning it to LIST. BASE defaults
+      to 10. If TAIL is given, the generated list is terminated by that
+      value, TAIL need not be bound.
+
+    list_to_bytes(LIST?, BYTES^)
+      Converts the list of integers LIST into a byte block object and
+      assigns it to BYTES.
+
+    list_to_integer(LIST?, INT^)
+    list_to_integer(LIST?, BASE?, INT^)
+      Converts the characters in LIST to an integer, with the
+      numeric base given in BASE and assigns the result to INT.
+      BASE defaults to 10.
+
+    list_to_string(LIST?, STRING^)
+      Converts the list of character codes in LIST into a string.
+      STRING will have UTF-8 character encoding.
+
+    list_to_tuple(LIST?, TUPLE^)
+      Converts LIST into a tuple, assigning it to TUPLE.
+
+    string_to_byte_list(STRING?, LIST^, TAIL?)
+      Converts STRING into a list of bytes. The list 
+      will be terminated with TAIL, which may be unbound.
+
+    string_to_integer(STRING?, INT^)
+    string_to_integer(STRING?, BASE?, INT^)
+      Converts the integer represented by STRING to an integral
+      value using the numeric base BASE, which defaults to 10.
+
+    string_to_list(STRING?, LIST^, TAIL?)
+      Converts STRING into a list of character codes. The list 
+      will be terminated with TAIL, which may be unbound. STRING
+      is assumed to have UTF-8 encoding.
+
+    tuple_to_list(TUPLE?, LIST^, TAIL?)
+      Converts TUPLE into a list of its elements. The list will
+      be terrminated by TAIL, which may be unbound.
+
+    utf_decode(LIST?, CHAR^, REST^)
+      Converts 1 to 4 elements of the byte list LIST into an
+      UTF-8 character code and assigns it to CHAR. The remaining
+      byte list is assigned to REST. If the list has fewer
+      elements than necessary to complete a UTF-8 sequence, then
+      the remaining bytes are assumed to be zero.
+
+    utf_encode(CHAR?, LIST^, TAIL?)
+      Encodes the UNICODE code point CHAR into a list of bytes and
+      assigns the list terminated by TAIL to LIST.
+
+  String search:
+
+    search_string(NEEDLE?, HAYSTACK?, INDEX^)
+    search_string(NEEDLE?, HAYSTACK?, START?, INDEX^)
+      Searches for NEEDLE in HAYSTACK and assigns the index of the
+      found substring to INDEX or 0 if the substring could not be
+      found. NEEDLE and HAYSTACK may be strings, character lists
+      or byte block objects and may be of different types. If START
+      is given, then the search starts at that index in HAYSTACK.
+
+  Modules:
+
+    current_module(MOD^)
+      Assigns the module of the current source file to MOD.
+
+    get_module(NAME?, MOD^)
+      Locates the module with the given name and assigns it to
+      MOD. The module will be loaded, if necessary. If the module
+      can not be found an error is signalled.
+
+    module_exports(MODULE?, LIST^)
+      Assigns a list of the exported process definitions of 
+      MODULE (which may be a module or a name of a module) to
+      LIST. Each element of the list is a tuple of the form 
+      "'/'(<name>, <arity>)".
+
+    run(MODULE?, TERM?)
+      Spawns the process designates by TERM, which should be a
+      string or a tuple with 2 or more elements. TERM must refer
+      to an exported process definition in MODULE, which may be
+      a module name or the result of a "get_module/2" invocation.
+
+  Tasks:
+
+    run(TERM?, STATUS^, CONTROL?)
+    run(MODULE?, TERM?, STATUS^, CONTROL?)
+      Spawns the process designated by TERM in MODULE as a new task
+      and provides the STATUS variable and the stream CONTROL
+      to obtain the task's current status and to control its
+      execution. See below for more information about tasks.
+      Note that this process always succeeds - any errors caused
+      by refering to an undefined module, or if TERM does not
+      designate a valid or existing export, will result in a task
+      failure. If MODULE is not given, the current module is assumed
+      and the process must not necessarily be exported.
+
+  Streams:
+
+    merger(STREAM1?, STREAM2?)
+      Transmits data from STREAM1 to STREAM2. If an element of
+      STREAM1 has the form of a tuple "merge(STREAM3)", then
+      data from STREAM3 will be interleaved and sent to STREAM2
+      as well. When all streams merged into STREAM2 are closed,
+      STREAM2 will be closed as well. The elements of all merged
+      streams will be transferred to STREAM2 in an arbitrary
+      order, but the order of elements for each merged substream
+      will be preserved.
+
+  Ports:
+    
+    open_port(PORT^, STREAM^)
+      Create a "port" object, everything sent to PORT using the 
+      "send/2" primitive will eventually appended to STREAM, which can 
+      be used like any other stream. Once a port is not referenced
+      anymore and can be garbage collected, STREAM will be closed
+      by assigning the empty list to its tail. It is usually wrong to
+      assign to STREAM explicitly. Note that a port will still be
+      reachable by the garbage collector if stored in the environment of 
+      a currently executing process.
+
+    send(PORT?, X?)
+    send(PORT?, X?, DONE^)
+      Writes X to PORT, appending it to the output-stream associated
+      with the port, assigning the empty list to DONE, when the
+      message send was completed.
+
+  Byte block objects:
+
+    copy_bytes(INDEX?, BYTES?, COUNT?, NEW^)
+      Creates a byte block object with the contents of the existing
+      byte block object BYTES, taken at position INDEX and with length
+      COUNT, and assigns the new byte block to NEW.
+
+    get_bytes(INDEX?, BYTES?, COUNT?, LIST^, TAIL?)
+      Extracts COUNT bytes at INDEX from the byte block object BYTES
+      and assigns them to LIST, which is terminated by TAIL. Note
+      that indexing starts at 1.
+
+    make_bytes(LEN?, BYTES^)
+    make_bytes(LEN?, INIT?, BYTES^)
+      Creates a byte block of length LEN with each byte initialized
+      to INIT and assigns it to BYTES. If INIT is not given, the
+      byte block contains undefined data.
+
+  Conversion to and from Bytes
+
+    pack(X?, BYTES^)
+      Converts the object X into a byte block object representing
+      X and assigns it to BYTES. X may not contain circular data.
+      If X is larger than an internal limit (currently the totally
+      available static heap size), then X may contain temporary
+      variables referencing further objects and thus will be
+      incomplete.
+
+    unpack(BYTES?, VAR^)
+      Converts a binary representation of arbitrary data in BYTES into
+      a data structure and assigns it to VAR.
+
+  Input/Output:
+
+    Note that all I/O operations block executing processes
+    until the read- or write-operation is completed. Files are
+    represented by normal UNIX file-descriptors, so to read from
+    stdin or write to stdout/stderr, use 0, 1 and 2, respectively.
+
+    listen(FILE?, VAR^)
+      Registers FILE in an internal list of file-descriptors and
+      assigns the empty list to VAR once input is available on
+      that file.
+
+    read_bytes(FILE?, COUNT?, BYTES^)
+      Read COUNT bytes from FILE and assigns a byte block object
+      to BYTES containing the read data. Signals an error on failure. 
+      Note that all processes are blocked when reading from FILE and 
+      insufficient input is available.
+
+    write(VAL?)
+      Write VAL to standard output. X must be fully ground (i.e. 
+      must not contain any unbound variables). Blocks until value 
+      is written. Strings are always printed unquoted and tuples
+      are shown in canonical form. For output that respects operator
+      syntax and write strings in quoted form when necessary, check
+      out the "fmt" library module.
+
+    write(FILE?, VAL?)
+    write(FILE?, VAL?, DONE^)
+      Write VAL to FILE, VAL must be fully ground, after completion
+      the empty list is assigned to DONE. 
+
+    write_bytes(FILE?, BYTES?, DONE^)
+    write_bytes(FILE?, BYTES?, OFFSET?, COUNT?, DONE^)
+      Write the bytes in the bytes-object, string or byte-list BYTES
+      to FILE and signal an error on failure. After completion the 
+      empty list is assigned to DONE. If OFFSET and COUNT are given,
+      the should be integers specifying the index of the first element
+      in bytes (starting at 1) and the number of bytes to write.
+
+    write_chars(FILE?, LIST?)
+    write_chars(FILE?, LIST?, DONE^)
+      Write the character codes in LIST to FILE and signal an
+      error on failure. After completion the empty list is assigned
+      to DONE. 
+
+    writeln(VAL?)
+    writeln(VAL?, DONE^)
+      Writes VAL to the console, followed by a newline character,
+      X must be fully ground. The empty list is assigned to DONE
+      after writing completed.
+
+  Files:
+
+    close_file(FILE?)
+    close_file(FILE?, DONE^)
+      Close the file designated by the file descriptor FILE and
+      signal an error on failure. Assign the empty list to DONE, when 
+      the file has been closed.
+
+    delete_file(NAME?, DONE^)
+      Deletes the file given by the string or character list NAME
+      and assigns the empty list to DONE, when the operation has been
+      completed.
+
+    file_modification_time(NAME?, MTIME^)
+      Assigns the time in seconds of the file with the given name
+      to MTIME. If the file does not exist, an error is signalled.
+      NAME may be a string or a character list.      
+
+    file_size(NAME?, SIZE^)
+      Assigns the size in bytes of the file with the given name 
+      to SIZE. If the file does not exist, an error is signalled.
+      NAME may be a string or a character list.
+
+    file_status(NAME?, TYPE^)
+      Assigns one of the strings "file", "directory", "link" or
+      "none" to TYPE, depending on whether the file given by
+      NAME is a regular file, a directory, a symbolic link, or
+      whether the file doesn't exist at all.
+      NAME may be a string or a character list.
+
+    open_file(NAME?, MODE?, FILE^)
+      Open the file with the given name and mode and assigns a
+      file-descriptor to FILE. If the file can not be openend
+      an error is signalled. MODE may be one of the strings
+      "rw" (read/write), "r"(read), "w"(write) or "a"(append).
+      NAME may be a string or a character list.
+
+    open_pipe(FILEIN^, FILEOUT^)
+      Open a bidriectional pipe and assign the input- and output files
+      to FILEIN and FILEOUT, respectively.
+
+  Timers:
+
+    timer(MSECS?, VAR^)
+    timer(MSECS?, INTERVAL?, VAR^)
+      Start a timer that assigns a value to VAR after MSECS
+      milliseconds.  If INTERVAL is given, the timer is periodical
+      and fires every INTERVAL milliseconds after the first MSECS.
+      A periodic timer produces a stream with an internal "clock"
+      value in VAR, the stream is closed (set to the empty list)
+      once the timer is disabled. A non-periodic "single-shot" timer
+      assigns the empty list to VAR once.  Note that there is only
+      a single timer that can be set, a subsequent creation of a
+      timer disables any timer previously set.
+
+    disable_timer
+      Disables the currently executing timer and does nothing if
+      no timer is active.
+
+  System:
+
+    chdir(NAME?, DONE^)
+      Changes the current directory to NAME and assigns the empty
+      list to DONE, when the operation was successful or signals
+      an error if the operation failed. NAME may be a string or a 
+      character list.
+    
+    command_line(LIST^)
+      Assigns a list of the command-line arguments given to the 
+      Strand VM to LIST. The list elements will all be strings and
+      do not include the program name. If "--" is given on the command
+      line, then all previous arguments, including the "--", will be
+      omitted from the returned list.
+
+    error(MESSAGE?)
+      Write error message given in MESSAGE and terminate 
+      the Strand VM. MESSAGE may be any type of data object and
+      should be fully ground.
+
+    getcwd(DIR^)
+      Assigns a string holding the name of the current working directory
+      to DIR.
+
+    getenv(NAME?, VALUE^)
+      Retrieves the environment variable given by the string or
+      character list NAME and assigns its value to VALUE. If so 
+      such variable exists, VALUE is assigned the empty string.
+
+    halt(CODE?)
+      Instantly terminate the Strand VM with exit code CODE.
+
+    kill(PID?, SIGNAL?, VAR^)
+      Send SIGNAL to the UNIX process with the given PID and assign
+      the empty list to VAR, when done. Signals an error when the
+      operation failed.
+
+    platform(OS^, ARCH^)
+      Assigns strings identifying the operating system and 
+      architecture to OS and ARCH, respectively. OS is one of the
+      strings "linux" or "openbsd", ARCH is one of the strings
+      "x86_64", "arm", "aarch64" or "ppc64"
+
+    shell(COMMAND?, STATUS^)
+      Invokes the shell command given by the string or character
+      list COMMAND and assigns the integer status code to STATUS.
+      The child process executes concurrently to the VM and STATUS
+      will be assigned as soon as the child terminates. See also
+      "execute/4" in the "proc" module for a variant that supports
+      I/O redirection.
+
+    strand_version(VERSION^)
+      Assigns an integer representing the current version of the 
+      Strand VM to VERSION.
+
+    time(SECONDS^)
+      Assigns an integer representing the current number of seconds 
+      since the UNIX epoch to SECONDS.
+
+    pledge(PROMISES?, EXECPROMISES?, DONE^)
+      An interface to the pledge(2) system call on OpenBSD. On
+      Linux and Darwin, this primitive does nothing. 
+      PROMISES and EXECPROMISES may be strings or character lists. 
+      An argument of "[]" (the empty list) is considered the same
+      as NULL. After the system call returned, the empty list is
+      assigned to DONE.
+
+    unveil(PATH?, PERMISSIONS?, DONE^)
+      An interface to the unveil(2) system call on OpenBSD. On
+      Linux and Darwin, this primitive does nothing. PATH 
+      and PERMISSIONS may be strings or character lists. An 
+      argument of "[]" (the empty list) is considered the same
+      as NULL. After the system call returned, the empty list is
+      assigned to DONE.
+
+    set_user_id(UID?, DONE^)
+      Set the user ID to the integer value UID and assign the 
+      empty list to DONE, when the system call succeeded.
+
+  Globals:
+
+    get_global(KEY?, VAL^)
+    get_global(KEY?, VAL^, DEFAULT?)
+      Retrieves the global variable with the name KEY, which should
+      be a string and assign the value to VAL. If the global variable is 
+      not defined, an error is signalled, unless DEFAULT is given,
+      which will be assigned to VAL instead.
+
+    put_global(KEY?, VAL?, DONE^)
+      Stores VAL under the string KEY as a global variable, over-
+      writing any previously stored value under the same name.
+      The global variable is only accessible in the node where
+      it was stored. Once the global value is stored, the empty
+      list is assigned to DONE.
+
+  Special forms:
+
+    foreach(VAR^, LIST?, GOAL)
+      Creates a process for each element of LIST in which VAR refers
+      to that element, executing GOAL. VAR must be an unbound variable.
+      Processes are created once LIST is fully instantiated, but the
+      list elements may still refer to unbound variables. GOAL may be
+      any non-compound term, either primitive or user defined, but may
+      not be a variable refering to a term - it must be code.
+
+      "foreach(VAR, LIST, GOAL)" is operationally similar to:
+
+        foreach_1(LIST)
+
+      with "foreach_1" being defined as (not including variables that
+      used in GOAL):
+
+        foreach_1([]).
+        foreach_1([VAR|L]) :- GOAL, foreach_1(L).
+
+    when(VAL?, GOAL)
+      Execute goal once VAL is bound. GOAL may be a compound term,
+      in that case "when(VAL, (X, Y))" is equivalent to 
+      "when(VAL, X), when(VAL, Y)".
+
+      "when(X, GOAL)" is operationally equivalent to:
+
+        when_1(X)
+
+      where "when_1" is defined as (not including variables that
+      are referred to in GOAL):
+
+        when_1(X) :- data(X) | GOAL.
+
+  Other primitives:
+
+    current_node(ADDRESS^)
+    current_node(ADDRESS^, PID^)
+      Assigns the address of the current node to ADDRESS and optionally
+      the UNIX process-id of the Strand VM process to PID.
+
+    deref(X?, DONE^)
+      Completely dereference X and assign the empty list to DONE,
+      when all unknown variables in X have been bound.
+
+    true
+      Does nothing.
+
+If you intend to extend the set of primitive operations, see the
+file "HACKING" in the distribution, which contains some information
+about the system's internals.
+
+Note that there is no facility for user-defined operators unless you
+modify the Strand parser in the "parse" module.
+
+
+VI. Guards
+
+The following guard expressions are supported. Unless specified
+otherwise a guard referencing an unbound variable will suspend the
+matching of the current rule. Errors signalled during guard execution
+will terminate the Strand VM.
+
+  Matching:
+
+    X == Y
+      Succeeds when X matches Y.
+
+    X =\= Y
+      Succeeds when X does not match Y.
+
+  Numerical comparison:
+
+    X =:= Y
+      Succeeds when X is numerically equal to Y. Both arguments must
+      be integer expressions, otherwise an error is signalled.
+
+    X \=:= Y
+      Succeeds when X is not numerically equal to Y. Both arguments 
+      must be integer expressions, otherwise an error is signalled.
+
+    X > Y
+      Succeeds when X is greater than Y. Both arguments must be 
+      integer expressions, otherwise an error is signalled.
+  
+    X < Y
+      Succeeds when X is less than Y. Both arguments must be 
+      integer expressions, otherwise an error is signalled.
+  
+    X >= Y
+      Succeeds when X is greater than or equal to Y. Both arguments 
+      must be integer expressions, otherwise an error is signalled.
+  
+    X =< Y
+      Succeeds when X is less than or equal to Y. Both arguments 
+      must be integer expressions, otherwise an error is signalled.
+
+  Type predicates:
+
+    bytes(X)
+      Succeeds if X is a byte block object.
+
+    integer(X)
+      Succeeds if X is an integer.
+
+    known(X)
+      Succeeds if X is not an unbound variable. If it is unbound,
+      then the guard fails but the rule does not suspend.
+
+    list(X)
+      Succeeds if X is a list. Note that this guard fails for the
+      empty list.
+
+    module(X)
+      Succeeds if X is a module.
+
+    port(X)
+      Succeeds if X is a port.
+
+    string(X)
+      Succeeds if X is a string.
+
+    tuple(X)
+      Succeeds if X is a tuple.
+
+    unknown(X)
+      Succeeds if X is an unbound variable.
+
+  Term ordering:
+
+    X @> Y
+      Succeeds if X is ordered higher than Y. X and Y may be any
+      term but variables are dereferenced as necessary. Terms are 
+      ordered as follows:
+
+        INTEGER < STRING < LIST < TUPLE < PORT < MODULE < BYTES
+
+      The empty list is ordered the same as a string.
+      Integers are numerically ordered, strings lexicographically,
+      lists are ordered by elements. Tuples are ordered first by
+      length then element by element and byte blocks are ordered
+      byte-wise. Ports and modules have an unspecified (but stable) 
+      order.
+
+    X @< Y
+      Succeeds if X is ordered lower than Y. X and Y may be any
+      term.
+
+    X @>= Y
+      Succeeds if X is ordered higher than Y or if it is equal. 
+
+    X @=< Y
+      Succeeds if X is ordered lower than Y or if it is equal.
+
+  Other guards:
+
+    data(X)
+      Suspends if X is an unbound variable and always succeeds.
+
+    otherwise
+      Always succeeds when no textually preceding rule matched
+      successfully.
+
+    idle
+      Suspends until the node becomes idle, i.e. no active processes
+      are executing anymore. Note that a node is considered idle
+      even if processes are currently suspended waiting for UNIX
+      child processes or if listening on input from a file.
+
+
+VII. Arithmetic Expressions
+
+The second argument to the "is/2" primitive process may be an
+arithmetic expression of which the result is assigned to the first
+argument as with ":=". Only integer arithmetic is supported.  The
+following table lists the allowed operators and their precedence,
+from lowest to highest:
+
+  Precedence  Expression    Meaning
+
+    1          X + Y        Add
+               X - Y        Substract
+               X /\ Y       Binary AND
+               X \/ Y       Binary OR
+               X >< Y       Binary XOR
+    2          X * Y        Multiplication
+               X / Y        Division
+               X \\ Y       Remainder
+               X >> Y       Shift X arithmetically right by Y bits
+               X << Y       Shift X left by Y bits
+    3          -X           Negation
+               \X           Binary NOT
+
+  All binary arithmetic operators are left-associative. The 
+  following functions are available inside arithmetic expressions:
+
+  abs(X)
+    Absolute value.
+
+  clock
+    Returns the internal "ticks", one tick being one process
+    execution step.
+
+  isqrt(X)
+    Integer square root.
+
+  max(X, Y)
+  min(X, Y)
+    Maximum and minimum of two integers.
+
+
+VIII. Declarations
+
+Declarations give additional information to the Strand compiler
+that generates loadable modules and have the form
+
+  -DECLARATION(ARGUMENTS, ...).
+
+Currently the following declarations are supported:
+
+  -exports([NAME/ARITY, ...])
+    Export processes with given name + arity from the current module. 
+    See below for more details.
+
+  -meta(DATA)
+    Add DATA to the module's metadata, which is data returned by
+    the internal process '$META'/1. See the "HACKING" document for
+    more information.
+
+  -machine(TYPE)
+    Declares that this module should run in a node-network of the
+    given topology, which may currently be "ring" or "torus". See
+    later in the section on running multiple VMs in parallel.
+
+
+IX. Modules
+
+Strand program code is organized into modules that are compiled
+from source form to a binary platform-independent representation
+that can be loaded by the Strand VM. A module usually provides one
+or more exports that identify processes that can be invoked inside
+the module. Non-exported processes are not accessible from outside
+and can only be used in the module itself.
+
+To invoke an exported process definition, use the following syntax:
+
+  MODULE:PROCESS(ARGUMENTS, ...)
+
+Modules are loaded on demand, on the first invocation of any exported
+process definition. Modules are also loaded when the Strand VM
+starts. In this case a zero-arity process named "main" will be
+invoked. A module loaded at startup may also export a zero arity
+process named "$start", which is invoked automatically, even if
+"main" is defined.
+
+If a module has no "exports" declaration, all process definitions
+are exported by default.
+
+Modules are first class objects and can be passed as values to
+processes as arguments and can be serialized and sent to separate
+executing Strand VMs.
+
+
+X. Tasks
+
+Groups of processes can run as a controlable entity in the form of
+"tasks". Use "run(MOD?, TERM?, STATUS^, CTRL?)" to spawn a task,
+where STATUS is a variable the holds the current execution status
+of the task and CONTROL is a stream where the status can be changed.
+
+When the last process of a task terminates, STATUS will be assigned
+the string "success". Any non-fatal error encountered during the
+execution of a process belonging to the task will set the status
+to the tuple "fail(REASON)", where REASON is a string identifying
+the general class of error (enable logging to see the full error
+message). This includes matching failures, or errors triggered by
+the "error/1" primitive process. Note that the errors in the initial
+task will always terminate the Strand VM, the initial task also has
+no accessible status and control variables.
+
+STATUS should not be assigned directly, the effect of doing so is
+undefined.
+
+CONTROL should be a stream and provides a way to control the execution
+of the task. Assigning "[suspend|C]" will suspend all processes of
+this task until "[resume|C2]" is assigned to C, with C2 being the
+continuation of the control stream. When a task is suspended, the
+status variable is assigned the pair "[suspend|S]", and S will be the
+subsequent status variable once the task is resumed.
+
+Assigning the string "stop" to C will set the status to "stop" and 
+terminate all processes of the task.
+
+Note that the control-stream should never be assigned with a remote
+variable (an unassigned variable from a different node), since
+retrieving the remote variable may stall indefinitely with the local
+tasks's status being in an inconsistent state until the remote is
+bound, due to architectural reasons.
+
+Tasks are always local to a node. Performing a remote call to a
+different node will create a process in the initial task of the
+remote node.
+
+
+XI. Library Modules
+
+This implementation of Strand provides a number of library modules
+with additional functionality. Consult the comments in the source
+files for information about exported processes.
+
+  map               A simple implementation of AVL trees
+  compile           Strand compiler core
+  fmt               Formatted output
+  io                I/O stream operations
+  lex               Strand lexical analysis
+  list              Some list-procesing operations
+  parse             Strand parser
+  proc              Invoking external processes
+  rnd               Random numbers
+  set               Operations on lists as sets
+  sort              Sorting
+  stc               Strand compiler toplevel
+  strand            Reading of Strand terms from a file
+  sys               Runtime system for multi-node applications
+  term              Term operations, used by the compiler
+  topology          Topology generation, used by name-server
+  tunnel            Runtime system for "tunnel" nodes
+  vmrun             Support module for multi-node applications
+
+
+XII. Running Multiple Strand VMs in Parallel
+
+Multiple running Strand VMs can communicate by passing messages via
+a shared memory mapped file. Messages are serialized into a
+platform-independent format and allow unidirectional communication
+between Strand "nodes". By passing unbound variables, results can
+flow back to the message sender, the handling of forwarding and
+bindings variables across node-boundaries is done transparently by
+the Strand VM.
+
+Each node (a single running "strandvm" instance) has a node-
+identifier (which is the same as the UNIX process identifier), and
+an "address", designating the machine the node is running on and
+the index of it's "port", an area for receiving messages in the
+shared  memory mapped message file. The port is automatically
+computed from the node-identifier, unless explicitly given by using
+the "-P" option of "strandvm". The message file defaults to
+"strand.msg" in the current directory and can be overridden by using
+the "-f" option. The machine-identifier is only relevant if you
+want to have communicating Strand nodes between different physical
+or virtual machines, see below for running Strand code in a distributed
+manner.
+
+The message file must be created manually by running the following
+command:
+
+  strand -g strand.msg
+
+Once the message file exists, additional strandvm processes can be 
+started:
+
+  strandvm sys
+
+The "sys" module needs to be loaded to allow communication
+with other nodes. The node will now wait for external messages until
+terminated. You can of course pass further modules to strandvm to
+run your own application code. Use "-l LOGFILE" to log information
+about the execution of your node and of the communication with other
+nodes. 
+
+Invocation of processes on other nodes is accomplished using the
+"@" (at) operator:
+
+  square(X, Y) :- Y is X * X.
+  
+  main :- square(4, R)@32, writeln(R).
+
+Here, "square" is called on the node listening on message port 32.
+The module holding the code will be requested and retrieved by the
+target node automatically and "square" will execute on the remote
+node. The access of "R" then will suspend and retrieve the result
+once it has been computed. If you address other nodes by their port
+number as above, the target node will have to be started with the
+"-P" option to be assigned the port number.
+
+Since ports are normally computed from the UNIX process-identifier,
+addressing nodes by more convenient means is provided by a mapping
+a topology over a collection of nodes. Currently ring and torus
+topologies are supported and are created from all registered nodes
+on demand.  The second argument to the "@" operator (which may be
+a variable) designates the peer node and can be either a direct
+port number or one of the following:
+
+  fwd, bwd
+    the next or previous  node in the ring topology.
+
+  north, south, east, west
+    the four neighbour nodes in the torus topology.
+
+  all
+    all nodes in the topology.
+
+Ring and torus topologies are infinite in the sense that addressing
+neighbours at the edge of the map of nodes wraps around. There is
+no way for a node to obtain its position in the network, this has
+to be achieved by user code. Calling process with "@all" is a 
+simple way of broadcasting a message to all nodes.
+
+A topology is fixed once created. If a node in a topology terminates, the
+topology can be considered broken, this is currently not handled
+gracefully which means an application module using this topology
+should be restarted.
+
+When waiting for messages from external nodes and no other processes
+are running, a node is "idle", repeatedly waiting for messages
+through a spin-lock. This is a busy wait that consumes CPU cycles,
+while periodically checking for interrupts and I/O. To reduce the
+workload of long-running nodes, the VM sleeps for a short period
+which progressively increases, as long as no messages are received.
+This makes a node less responsive to messages but reduces the
+energy consumption.
+
+An internal counter of "idle" cycles is increased on every cycle
+tick, shifted by a fixed amount and used as the number of 
+milliseconds to sleep, at most 100 ms. This shift amount is by
+default 10 and can be set using the "-r SHIFT" command-line option.
+The lower the shift the quicker the sleep time in idle cycles
+increases. This parameter is necessarily dependent on the 
+performance of the underlying system. You can override the shift
+by using "-r" or changing the "IDLE_SHIFT" limit in "limits.f".
+Setting the shift to a very high value (e.g. the same as the
+machine word size) disables the progressive slowdown, making a
+node maximally responsive at the cost of a busy CPU as long as the
+node runs. "-r 0" disables progressive slowdown and the VM will
+always run at full speed.
+
+
+XIII. Distributed Strand
+
+Strand nodes can communicate with other nodes on separate physical
+machines by "tunneling" message sending over network connections.
+The "tunnel" library module converts all messages send to a separate
+pool of nodes identified by a machine identifier by writing them
+in a special format to its output channel. Using a tool like socat[6],
+this output can then be transmitted over (say) SSH to a tunnel node
+on a different machine, is converted to a normal node-to-node message
+and forwarded to the destination node. On both machines a name
+server node should run to make all nodes in the combined network
+be known to each machine's node pool.
+
+For example, if you have two machines, identified by the machine
+identifiers 1 and 2, connect them in the following manner:
+
+  strand -g strand.msg
+  strandvm -m 1 -P 32 sys
+  ssh other_machine strand -g strand.msg
+  ssh other_machine strandvm -m 2 -P 32 sys &
+  socat 'EXEC:strandvm -m 1 -P 2 tunnel' 'SSH:strandvm -m 2 -P 1 tunnel' &
+
+Note that a tunnel listens on the same port as the machine it is
+connected with. The two tunnels establish a connection over which
+messages targeted at the remote machine are forwarded.
+
+All machines in a distributed setting must be able to access their
+peer machines via ssh(1), ideally with a password-less login.
+
+Should a node terminate by crashing or terminate in some other 
+non-graceful way, you should recreate the "strand.msg" file from 
+scratch in case any held locks persist in the message file.
+
+Machine identifiers should be selected from the integers 1 up to 31.
+Since tunnels use the machine identifiers as message port index,
+randomly allocated ports for normal nodes are using message port 
+indexes from 32 and above to avoid conflicts.
+
+
+XIV. Node Pools
+
+To create and coordinate pools of Strand VM nodes on one or more
+machines, the "strand" tool simplifies the management of VM processes
+and the steps necessary to start and stop a network of nodes.
+
+"strand" is invoked with a command specifying the intended action and
+an optional list of project directories to which the action should 
+apply. The following actions are available:
+
+  home
+    Prints the home-directory, where libraries and VM are located.
+
+  start ID [-m MAC] [-n NODES] [-l] [-s] [-d] [-i DIRECTORY] 
+    [HOST:RMAC ...]
+    Starts a pool of NODES nodes identified by machine identifier MAC,
+    NODES defaults to 4 and MAC to 1. HOST:RMAC pairs designate remote
+    hosts (reachable by ssh(1)) that are assumed to be running and local
+    and remote tunnel nodes will be started to communicate with the
+    remote host. This command creates a file named ID that holds the
+    necessary information to work with this node pool.    
+
+  stop ID
+    Stops a pool of nodes identified by the control file ID and removes
+    the file.
+
+  watch ID
+    Runs a loop that restarts nodes from the node pool identified by
+    the control file ID as necessary.
+
+  run [ID] [OPTION ...] MODULE|FILENAME
+    Runs a Strand module, optionally compiling it first, if it is a
+    source file with the extension ".st". If ID is given, then
+    module should be already compiled and will be injected into a
+    running node pool designated by the control file ID.
+
+If no command is given, "strand -c FILENAME" will compile a Strand
+source file. "strand -g" creates a message file. Enter
+
+  strand -h
+
+To see a list of commands and the valid options.
+
+
+XV. Debugging Strand Code
+
+There are no debugging facilities besides logging. The "-l LOGFILE"
+option to "strandvm" generates a log file that can be consulted and
+which writes out information about major events in the lifetime of
+the node. Adding "-d" will print more what processes are executed,
+how the resolution mechanism tries to match process rules and how
+processes suspend and resume on variable reference and assignment.
+Note that logging, especially in debug mode has a noticable performance
+impact.
+
+The Strand VM catches SIGINT and SIGTERM and shuts down gracefully.
+Sending SIGHUP to the VM will terminate the VM and write a report
+with various VM statistics to stderr (the same report as is shown
+in the log file when logging is enabled).
+
+
+XVI. Generating Graphs from Logged Statistics
+
+When given the "-s" option, the Strand VM adds statistical output
+to the log file, "-l LOGFILE") must still be specified for the log
+file to be created. Two types of statistics are produced:
+
+1. System parameters, where each line holds
+
+  "## CLK APR SPR PRC DER SSP RED SNT NSN RCD NRD REM EXP ATM STA ALC HEP"
+
+  where the printed numbers have the following meaning:
+
+    CLK   current internal clock ("ticks")
+    APR   number of active processes in the process pool
+    SPR   number of suspended processes
+    PRC   total number of processes
+    DER   total number of variable dereferences performed
+    SSP   total number of process suspensions on unbound variables
+    RED   total number of process-reductions performed
+    SNT   total number of bytes sent to other nodes
+    NSN   total number of messages sent to other nodes
+    RCD   total number of bytes received from other nodes
+    NRD   total number of messages received from other nodes
+    REM   number of active "remotes" (remote unbound variables)
+    EXP   number of active "exposures" (unbound variables referenced
+          remotely)
+    ATM   number of interned strings
+    STA   used amount of static string area in bytes
+    ALC   total number of bytes allocated
+    HEP   size of used heap space
+
+2. Heap statistics, where each line contains
+
+  "#$ CLK PRC TUP LST VAR REM MOD BIN"
+
+  where the printed numbers have the following meaning:
+
+    CLK   current internal clock ("ticks")
+    PRC   bytes in heap used for processes
+    TUP   bytes in heap used for tuples
+    LST   bytes in heap used for lists
+    VAR   bytes in heap used for unbound variables
+    REM   bytes in heap used for remotes
+    MOD   bytes in heap used for modules
+    BIN   bytes in heap used for internal byte buffers
+
+Heap-statistics can be separately enabled with the "-hs" option,
+if the other set of statistics are not required and reduces the
+logging output considerably.
+
+The "strand" tool provides a helper tool that parses a log file and
+invokes Gnuplot[7] with the necessary parameters to draw a graph
+for one or more of the system parameter values over the time of
+execution of the node (so far), where time is measured in internal
+clock ticks (not elapsed time).
+
+"strand plot" also can create a histogram of the heap-usage. Enter
+
+  strand plot -help
+
+for exact usage information.
+
+
+XVII. VM Execution Model
+
+Here follows a high-level description of the execution steps the
+Strand VM performs after starting up. At all times them VM maintains
+a "process pool", a queue of active processes and the arguments with
+which they where invoked. When the process pool is empty, then all 
+processes have terminated or are suspended on unbound variables.
+
+1. Load all modules given on the command line.
+2. If any loaded module exports a process definition named "$start/0",
+   then this process is added to the process pool. If any loaded
+   module exports a process definition named "main/0" (or the name
+   specified in the "-p" option), then this is added to the process
+   pool as well.
+3. Periodically, poll for input on file-descriptors that suspended 
+   processes are listening on and add those processes to the process
+   pool, if input is available.
+4. If a UNIX child process terminates, add all processes waiting for
+   this particular process to the process pool.
+5. If there is a message available on the VMs message port, enqueue
+   it in the local event-queue.
+6. If there are processes in the process pool, dequeue the first and
+   invoke it, calling it the "current process". 
+  7. If the current process runs in its own task, check the tasks
+     control and status streams and terminate or suspend the
+     process, if necessary, continuing at step 3.
+  8. If no clause of the process definition for the current process
+     matches the VM terminates with an error message.
+  9. If a clause matches (including the guards), then the sub-goals of
+     the clause are added to the process pool and execution continues
+     at step 3.
+  10. If the current process suspends on an unbound variable, it is
+      enqueued in the process pool and execution continues at step 3.
+11. If the process pool is empty:
+   12. If there are no suspended processes, the VM terminates.
+   13. Trigger processes suspended on the node being idle, or
+       communicate idleness to other nodes in a multi-node
+       application.
+   13. If there are executing UNIX child processes or the VM is
+       listening for input on file descriptors, the VM performs either
+       wait or polls for input, or does a combination of both.
+      14. If a UNIX child process terminates, any process suspended
+          on the child process is added to the process pool.
+      15. If input is available on a listened-for file descriptor,
+          any process waiting for this is added to the process pool.
+      16. Execution continues at step 3.
+   17. If there are any live ports, perform a garbage collection
+       and close those port streams of ports that where reclaimed
+       and continue a step 3 if any port was closed.
+   18. Finally, if no UNIX child processes run, no process is listening
+       for input, no ports could be reclaimed, and there are still
+       processes suspended, the VM is in deadlock and terminates with
+       an error message.
+
+
+XVIII. VM Error Messages
+
+The Strand VM produces the following error messages. 
+
+Fatal errors:
+
+These errors terminate the VM.
+ 
+  "no message file open"
+    The file for exchanging messages between nodes could not be
+    opened and the program module tried to send a message to 
+    another node.
+
+  "port has no owner: <ADDRESS>"
+    An attempt to send a message to a different node failed because
+    the destination node de-registered, probably by terminating
+    early.
+
+  "error while accepting forwarded message"
+    An error occurred while reading a tunnelled message from another
+    machine.
+
+  "unexpected end of input from remote peer"
+    A remote machine terminated its connection through a tunnel
+    node.
+
+  "can not serialize - buffer full"
+    A message serialized for transfer to another node exceeded
+    the buffer size.
+
+  "string of size <SIZE> exceeds serialization limit"
+    A string could not be sent to a remote node because the string
+    length exceeded the message buffer size.
+
+  "bytes object of size <SIZE> exceeds serialization limit"
+    A bytevector object could not be sent to a remote node because
+    the length exceeded the message buffer size.
+
+  "tuple of size <SIZE> exceeds serialization limit"
+    A tuplecould not be sent to a remote node because
+    the total size exceeded the message buffer size.
+
+  "deadlock with <COUNT> processes suspended"
+    Deadlock occurred because no active, non-suspended processes
+    exist.
+
+  "I/O error while polling"
+    Polling for input on a file descriptor resulted in an error.
+
+  "too many globals"
+    More than the allowed number of global variables are in use.
+
+  "too many ports"
+    More than the hardcoded limit of port objects where created.
+
+  "invalid bytecode: <CODE>"
+    The bytecode-compiler encountered an illegal bytecode, 
+    probably caused by a corrupt compiled module or scrambled
+    message data when a modules code is transmitted to another
+    node.
+
+Non-fatal errors:
+
+These errors will be caught when occurring during the execution of
+a subtask. The string shown gives the "tag" stored in the
+"fail/1" task status tuple. The actual error message written may
+contain additional information.
+
+  "division by zero"
+    Attempt to divide by zero in an "is/2" expression.
+
+  "assignment to non-variable"
+    Attempt to assign a value to a previously bound variable.
+
+  "attempt to write into closed stream"
+    A value was appended to a merger-stream that was already
+    closed previously.
+
+  "port-stream contains non-list"
+    "send/2" was invoked on a port whose stream was explicitly
+    assigned a non-list tail.
+
+  "global not found"
+    A global variable could not be retrieved.
+
+  "error in system call"
+    An error occurred while performing an operating system call.
+
+  "module not found"
+    Unable to find module given on the command line or when using
+    the "run" primitive process.
+
+  "match falure"
+    Match failure in process head.
+
+  "process-definition not found"
+    A process in a remote call via the "@/2" operator was not 
+    found in the current module.
+
+  "export not found"
+    An exported process was not found in the target module.
+
+  "invalid I/O mode"
+    The mode argument given to "open/3" was invalid.
+
+  "error opening file"
+    Opening a file failed, because the file does not exist or
+    the opening process does not have the necessary permissions.
+
+  "error reading file"
+    A read-operation on a file failed.
+
+  "error writing file"
+    A write-operation on a file failed.
+
+  "index out of range"
+    Indexing a tuple via "get_arg" or "put_arg" uses an index
+    that is out of range.
+
+  "status of resumed task is non-list"
+    The status variable of a task is of invalid type, usually
+    because the status was directly assigned, which is not
+    permitted.
+
+  "task control stream may not refer to remote"
+    The control stream of a task refers to a remote variable
+    reference, which is currently not permitted.
+
+  "invalid task control object"
+    The task control stream was assigned an invalid value.
+
+  "task status may not refer "
+    The status variable of a task refers to a remote variable
+    reference, probably because it was assigned directly.
+
+  "can not convert to integer"
+    A value can not be converted to an integer in a
+    "list_to_integer" or "string_to_integer" operation.
+
+  "type error"
+    A primitive process expected a value of a different type.
+
+
+XIX. Bugs and Limitations
+
+By changing values in the "limits.f" source file and rebuilding the
+Strand VM, the value of various system limits and sizes of data
+area sizes can be customized as desired. The current implementation
+has relatively modest memory demands and can handle a large number
+of processes. Programs that spawn processes excessively can be very
+slow and it requires some care to structure code in such a way that
+the number of concurrent processes fluctuates not too much.
+
+As in all parallel programming languages, writing code that scales
+well among the available computing resources is an art form that
+needs experience.
+
+The VM is not particularly fast and the compiler does very few
+optimizations. Also, the Forth implementation is a traditional
+indirect threaded one, which has some overhead but doesn't require
+generating executable code at run-time.
+
+Strings are not garbage collected. They are interned in a table
+when modules are loaded or when created with "list_to_string/2" to
+allow efficient comparison of strings. Excessively creating new
+unique strings will at some stage exhaust the available space in
+the string table.
+
+Memory limits:
+
+  Heap size (one half in use)               10,000,000
+  Amount of space for strings               256 kB
+  Maximal number of processes               131,072
+  Maximal number of modules                 256
+  Size of Forth dictionary space            16 MB
+  Maximal size of message                   16 kB
+  Maximal number of files to listen for     32
+  Maximal number of strings                 16384
+  Maximal number of global variables        256
+  Maximal number of port objects            1024
+
+Bugs:
+
+This software is very young and, needless to say, will contain many
+bugs. Please don't hesitate to report them by contacting the author.
+
+The implementation contains a number of known shortcomings that may
+or may not be addressed in the future:
+
+- The VM currently does busy waiting when listening for messages.
+  An attempt is made to at least give other nodes a chance to run
+  (via usleep(2)), but still a lot of CPU cycles are burnt due to
+  the use of spin-locks in the communication model. If idling 
+  continuously, the VM progressively increases the sleep-time to
+  reduce CPU activity but will be less responsive on the first 
+  message arriving.
+
+- When an unbound variable is "exposed" to another node, a
+  reference counting scheme is used to ensure that the variable
+  will not be garbage collected if still in use. Since a request
+  to add a reference from a different node may still be "in flight",
+  the exact moment to drop the exposed variable from the internal
+  table holding it is hard to estimate. Currently the actual process
+  of dropping an exposed variable is delayed for a certain period
+  of "idle" periods (when a node is not busy and listening for
+  remote messages), this approach should work in most cases but
+  is of questionable reliability.
+
+- Remote calls (using "@") to builtin processes are currently not
+  supported. Also builtin processes can not be given directly to
+  "run/3" or "run/4", use an intermediate user-defined process in 
+  this case.
+
+- Cyclic data structures are not allowed. This is currently not
+  checked and may result in a VM that hangs, trying to walk an
+  infinite data structure.
+
+- The size of messages sent between nodes is fixed, sending
+  sequential data objects like strings and tuples that exceed this 
+  limit (32768 bytes by default) will signal an error. This limit 
+  also applies to compiled modules sent to nodes.
+
+- A remote call (using "@") automatically makes the callee request
+  the relevant module from the caller, but when the module contains
+  other calls to modules that are currently not loaded, these
+  modules must be accessible to the callee and are not requested
+  from the caller.
+
+- The case of connection-breakdown between two tunnel nodes is not
+  handled gracefully.
+
+- When a node terminates any topology it was part of is broken and
+  unusable, there is currently no mechanism of "repairing" the
+  network.
+
+- Explicit assignment to the status variable of a task has an 
+  undefined effect. Assigning a remote value to the control stream 
+  of a task will trigger an error.
+
+- When a task stops or suspends itself, then the current process
+  may not halt instantly, but when the next process belonging to
+  the task is scheduled, due to the way tail-call optimization is 
+  implemented.
+
+- Tasks can not be extended to different machines, they exists only
+  on the VM where they were created. A remote call from a task will
+  execute on the remote VM in the default task and thus any errors
+  can not be caught.
+
+
+XX. Further Reading
+
+There has been a short but busy period of research on parallel logic
+languages, but unfortunately it left very little in terms of useful
+information. A number of dialects have been designed, among them
+Concurrent Prolog, Flat Concurrent Prolog, Parlog, Flat Parlog, GHC
+and Strand, all with slightly different semantics and variations
+in power and complexity.
+
+The best introduction to Strand is given in Foster+Taylor[1], with
+loads of examples and an excellent survey of programming techniques
+for parallel logic languages.  A publicly available paper giving a
+decent introduction to Strand is found in [5] by the same authors.
+The paper "The Family of Concurrent Logic Programming Languages"[8]
+by Ehud Shapiro doesn't directly describe Strand but may be useful
+for the contained information on programming techniques, as does
+[9]. Ian Foster's thesis "Parlog as a Systems Programming Language"
+gives a thorough treatment of the implementation issues for Flat
+Parlog and is a very interesting read.
+
+No implementations of concurrent Prolog systems seem to have survived,
+at least as far as I can tell, with the exception of Logix[10] which
+implements Flat Concurrent Prolog. There was a commercial implementation
+of Strand by the inventors of the language, the current status is
+unknown. Prototypical academic implementations of other languages
+of the family seem to have existed in the past but are not publicly
+available.
+
+
+XXI. References
+
+[1] "Strand: New Concepts for Parallel Programming",
+    Ian Foster and Stephen Taylor, Prentice Hall, 1990
+[2] https://en.wikipedia.org/wiki/Parlog
+[3] https://en.wikipedia.org/wiki/Prolog
+[4] https://en.wikipedia.org/wiki/Cheney%27s_algorithm
+[5] "Strand: a Practical Parallel Programming Language"
+    http://www.classiccmp.org/transputer/software/languages/strand/documentation/strand.ps
+[6] http://www.dest-unreach.org/socat/
+[7] http://www.gnuplot.info/
+[8] https://apps.dtic.mil/dtic/tr/fulltext/u2/a213958.pdf
+[9] "Parallel Logic Programming Techniques", 
+    Stephen Taylor, Prentice Hall, 1989
+[10] http://www.nongnu.org/efcp/
+[11] hhttps://spiral.imperial.ac.uk/bitstream/10044/1/47065/2/Foster-I-1988-PhD-Thesis.pdf
+[12] https://people.kth.se/~johanmon/papers/port.pdf
+
+
+XXII. License
+
+All documentation and code is released into the public domain.
+
+
+XXIII. Contact Information
+
+If you have questions or suggestions, send mail to
+
+  felix <at> call-with-current-continuation <dot> org

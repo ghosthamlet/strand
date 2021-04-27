@@ -1,0 +1,2 @@
+main :- writeln('hello, world').
+

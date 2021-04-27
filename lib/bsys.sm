@@ -1,0 +1,15 @@
+#!/usr/bin/env strandvm
+$32:3408a170f10027598e2118643f66529e
+T26:T2:$5:$META1$25:D7:$META/1[1VP0:p;E0:,!X]
+T2:$7:connect1$89:D9:connect/1[4VP0:p?P3:?P2:?P1:(E2:E3:K103:X)(E1:E2:J9:X)(E3:0BJ8:X)(E0:E2:J3:X);E1:K1:X]
+T2:$6:accept2$134:D8:accept/2[6VP1:P0:p?P4:?P3:?P2:(E3:E4:K103:X)(E2:E3:J9:X)(E4:0BJ8:X)($5:otherz32:K48:X)(E3:?E1:z32:$3:add4BK105:X)(E0:J5:X);E2:K1:X]
+I3:$221:D9:connect/22A[1VG0:%G1:OX'I11:VG0:L4NP0:P1:P2:P3:P4:G1:P5:?P10:?P8:?P7:?P6:(E0:E1:K48:X)(E5:E10:E6:E1:$3:add4BK105:X)(E10:E8:$1:/3BE7:E3:J4:X)(E4:E5:J3:X);E2:E6:$2:in$4:pipe3BE7:$3:out$4:pipe3B,..E8:?C4:proc7:execute4:X]
+I4:$59:D15:start_receive/3[3VP2:P1:P0:p(E2:gdE1:J5:X);E0:E2:K76:X]
+I5:$48:D9:receive/1[2VP0:p?P1:(E1:E0:J6:X);E0:E1:K52:X]
+I6:$78:D9:receive/22A[3VG0:%G1:P0:?P2:?P1:(E1:E2:,K107:X)(E2:E0:J7:X);E0:z2:E1:K33:X]
+I7:$140:D10:receive2/22A[1VG0:%G1:P0:;E0:K32:X'6VG0:LP0:LP1:%G1:P2:?P5:?P4:?P3:(E2:E3:E4:K33:X)(E4:E5:K125:X)(E5:K129:X)(E2:J5:X);E3:E0:|8{E1:|v#!X]
+I8:$187:D4:db/22A[1VG0:%G1:OX'6VG0:L4N$3:addg=P0:P1:P2:P3:G1:P4:?P5:(E5:gdE2:,!X)(E3:E5:J8:X);E0:E1:E4:E5:C3:map6:insert4:X'4VG0:L3N$3:getg=P0:P1:P2:G1:P3:(E2:E3:J8:X);E0:E3:E1:C3:map6:lookup3:X]
+I9:$55:D6:loop/22A[3VG0:LP0:P1:G1:P2:(E1:E2:J9:X);E0:E2:J10:X]
+I10:$1356:D8:handle/22A[SsSt14:@$9:send_read34VG0:3N$9:send_readg=P0:P1:G1:P2:?P3:(E3:gdE2:E1:E3:E1:E0:$4:read4BJ12:X);E3:K4:X'@$10:send_value44VG0:4N$10:send_valueg=P0:P1:P2:G1:P3:;E3:E1:E2:E1:E0:$5:value4BJ12:X'@$15:send_get_module44VG0:4N$15:send_get_moduleg=P0:P1:P2:G1:P3:;E3:E0:E2:E1:$10:get_module3BJ12:X'@$9:send_call57VG0:5N$9:send_callg=P0:P1:P2:P3:G1:P4:?P6:?P5:(E6:K4:X)(E6:gdE4:E5:E2:E6:E1:E0:$4:call5BJ12:X);E3:E5:K46:X'@$11:send_addref33VG0:3N$11:send_addrefg=P0:P1:G1:P2:;E2:E0:E1:$6:addref2BJ12:X'@$16:send_assign_port44VG0:4N$16:send_assign_portg=P0:P1:P2:G1:P3:;E3:E0:E2:E1:$11:assign_port3BJ12:X'@$4:read45VG0:4N$4:readg=P0:P1:P2:G1:P3:?P4:(E4:E3:E2:E0:E1:J11:X);E0:E4:K6:X'@$5:value44VG0:4N$5:valueg=P0:P1:P2:G1:O;E0:E1:E2:K5:X'@$4:call56VG0:5N$4:callg=P0:P1:P2:P3:G1:O?P5:(E5:E1:E3:K9:X);E0:E2:E5:K10:X'@$10:get_module33VG0:3N$10:get_moduleg=P0:P1:G1:O;E0:E1:K11:X'@$4:peer33VG0:3N$4:peerg=P0:P1:G1:O;E0:E1:K48:X'@$4:exit26VG0:2N$4:exitg=P0:G1:O?P5:?P4:?P3:?P2:(Y147:.I91:.I126:.I113:.I58:.I126:.I113:.I93:.I32:.I116:.I101:.I114:.I109:.I105:.I110:.I97:.I116:.I101:.I100:.I32:.I45:.I32:.I126:.I113:.I126:.I110:$2:[]E3:E2:E0:,...E4:C3:fmt12:format_chars3:X)(E4:E5:K17:X)(E5:K13:X);E2:E3:K49:X'@$6:addref22VG0:2N$6:addrefg=P0:G1:O;E0:K50:X'@$11:assign_port33VG0:3N$11:assign_portg=P0:P1:G1:O;E0:E1:K106:XSo'2VG0:P0:G1:O;E0:$12:unkown_event2BK13:X]
+I11:$82:D12:send_value/5[5VP4:P3:P2:P1:P0:pE0:gd(E1:E2:E0:E4:E3:$5:value4BJ12:X);E3:K51:X]
+I12:$199:D10:send_msg/3[I10:VP2:P1:P0:p?P8:?P7:?P6:?P5:?P4:?P3:(E2:E4:K124:X)(E4:E5:K23:X)(E4:E6:,K107:X)(E7:E5:|8}#!X)(E8:E5:|I255:^#!X)(E4:E3:E1:$4:send4BK7:X)(E3:E7:E8:E6:..?K44:X);E0:E3:E1:$3:get3BK105:X]

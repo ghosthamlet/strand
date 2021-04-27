@@ -1,0 +1,12 @@
+#!/bin/sh
+prg=$1
+test -z "$prg" && prg=ff
+forth=ff-arm-Linux
+gcc -DLinux '-march=armv6' '-Wa,-al=k-arm.lst' -c k-arm.s
+objcopy -O binary k-arm.o k-arm.bin
+gawk --posix -v 'mbase=8200' -f lst2fgnu.awk k-arm.lst > words.f
+od -An -t uC -v k-arm.bin | \
+    gawk '{for(i = 1; i <= NF; ++i) printf("%s c, ", $i); print ""}' > kernel.f
+boot/$forth 'include tools.f' 'create target-Linux' \
+    'include mmf32.f' "msave $forth" cr bye
+./$forth 'include tools.f' 'include Linux.f' 'include sys.f' "save $prg" cr bye

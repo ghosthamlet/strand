@@ -1,0 +1,13 @@
+#!/bin/sh
+prg=$1
+test -z "$prg" && prg=ff
+mbase=10000200
+forth=ff-x86_64-Darwin
+kernel=k-x86_64-Darwin
+nasm -f bin -dDarwin k-x86_64.s -o $kernel.bin -l $kernel.lst
+awk -f lst2f.awk -v mbase=$mbase $kernel.lst > words.f
+od -An -t uC -v $kernel.bin | \
+    awk '{for(i = 1; i <= NF; ++i) printf("%s c, ", $i); print ""}' > kernel.f
+boot/$forth 'include tools.f' 'create target-Darwin' 'include mmf64.f' \
+    "msave $forth" cr bye
+./$forth 'include tools.f' 'include Darwin.f' 'include sys.f' "save $prg" cr bye

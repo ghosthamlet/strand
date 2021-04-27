@@ -1,0 +1,8 @@
+#!/usr/bin/env strandvm
+$32:d05eadfb502e26029e877a7d5bbbbfa5
+T12:T2:$5:$META1$25:D7:$META/1[1VP0:p;E0:,!X]
+T2:$12:random_bytes2$107:D14:random_bytes/2[4VP1:P0:p?P3:?P2:(E2:E0:E3:K33:X)(E3:E1:,K107:X)(E2:K32:X);$12:/dev/urandom$1:rE2:K31:X]
+T2:$19:pseudo_random_state2$47:D21:pseudo_random_state/2[2VP1:P0:p;E1:E0:1B!X]
+T2:$21:pseudo_random_integer2$68:D23:pseudo_random_integer/2[3VP1:P0:p?P2:(E2:1BE0:E1:J4:X);E2:K75:X]
+T2:$21:pseudo_random_integer3$77:D23:pseudo_random_integer/33A[3VG0:1NP0:G1:P1:G2:P2:(E2:E1:1B!X);E0:E1:K56:X]
+T2:$21:pseudo_random_integer4$80:D23:pseudo_random_integer/4[5VP3:P2:P1:P0:p?P4:(E2:E4:|&E1:|\#!X);E0:E4:E3:J4:X]
